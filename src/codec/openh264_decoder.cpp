@@ -1,7 +1,7 @@
 #include "codec/openh264_decoder.h"
 #include "core/logger.h"
 
-#include <wels/codec_api.h>
+#include "codec/openh264_loader.h"
 #include <wels/codec_def.h>
 #include <cstring>
 
@@ -43,6 +43,11 @@ bool OpenH264Decoder::init(int width, int height) {
     destroy();
     width_ = width;
     height_ = height;
+
+    if (!openh264_load()) {
+        LOG_WARN("OpenH264 library not available");
+        return false;
+    }
 
     if (WelsCreateDecoder(&decoder_) != 0 || !decoder_) {
         return false;

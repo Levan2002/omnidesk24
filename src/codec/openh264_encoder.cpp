@@ -1,7 +1,7 @@
 #include "codec/openh264_encoder.h"
 #include "core/logger.h"
 
-#include <wels/codec_api.h>
+#include "codec/openh264_loader.h"
 #include <wels/codec_def.h>
 #include <cstring>
 #include <algorithm>
@@ -45,6 +45,11 @@ void OpenH264Encoder::destroy() {
 bool OpenH264Encoder::init(const EncoderConfig& cfg) {
     destroy();
     config_ = cfg;
+
+    if (!openh264_load()) {
+        LOG_WARN("OpenH264 library not available");
+        return false;
+    }
 
     if (WelsCreateSVCEncoder(&encoder_) != 0 || !encoder_) {
         return false;

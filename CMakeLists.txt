@@ -114,6 +114,7 @@ target_link_libraries(omnidesk_diff PUBLIC omnidesk_core)
 
 # Codec
 set(CODEC_SOURCES
+    src/codec/openh264_loader.cpp
     src/codec/openh264_encoder.cpp
     src/codec/openh264_decoder.cpp
     src/codec/codec_factory.cpp
@@ -149,9 +150,6 @@ if(OMNIDESK_PLATFORM_LINUX OR OMNIDESK_PLATFORM_WINDOWS)
 endif()
 if(OMNIDESK_PLATFORM_WINDOWS)
     target_link_libraries(omnidesk_codec PRIVATE mfplat mfuuid mf wmcodecdspuuid)
-    # Link against openh264 import lib generated from GIMP's bundled DLL
-    target_link_libraries(omnidesk_codec PRIVATE
-        ${CMAKE_BINARY_DIR}/libopenh264.dll.a)
 endif()
 
 endif() # NOT OMNIDESK_SERVER_ONLY
@@ -236,6 +234,14 @@ target_link_libraries(omnidesk_ui PUBLIC omnidesk_session omnidesk_signaling omn
 # Main executable (GUI app)
 add_executable(omnidesk24 src/main.cpp)
 target_link_libraries(omnidesk24 PRIVATE omnidesk_ui omnidesk_session)
+if(OMNIDESK_PLATFORM_WINDOWS)
+    # Statically link MinGW runtimes so the exe has no external DLL dependencies
+    target_link_options(omnidesk24 PRIVATE
+        -static-libgcc
+        -static-libstdc++
+        -Wl,-Bstatic,--whole-archive -lpthread -Wl,--no-whole-archive,-Bdynamic
+    )
+endif()
 
 endif() # NOT OMNIDESK_SERVER_ONLY
 
