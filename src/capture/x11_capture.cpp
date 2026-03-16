@@ -73,7 +73,7 @@ bool X11Capture::init(const CaptureConfig& config) {
 CaptureResult X11Capture::captureFrame(Frame& frame) {
     CaptureResult result;
     if (!initialized_ || !display_) {
-        result.status = CaptureResult::ERROR;
+        result.status = CaptureResult::CAPTURE_ERR;
         return result;
     }
 
@@ -107,7 +107,7 @@ CaptureResult X11Capture::captureFrame(Frame& frame) {
     const auto& mon = targetMonitor_;
     if (!XShmGetImage(display_, rootWindow_, shmImage_,
                       mon.bounds.x, mon.bounds.y, AllPlanes)) {
-        result.status = CaptureResult::ERROR;
+        result.status = CaptureResult::CAPTURE_ERR;
         return result;
     }
 

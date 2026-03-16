@@ -262,10 +262,10 @@ SocketResult TcpChannel::sendRaw(const void* data, size_t length) {
 #else
                 int pollRet = ::poll(&pfd, 1, 5000);
 #endif
-                if (pollRet <= 0) return SocketResult::ERROR;
+                if (pollRet <= 0) return SocketResult::SOCK_ERROR;
                 continue;
             }
-            return SocketResult::ERROR;
+            return SocketResult::SOCK_ERROR;
         }
         if (n == 0) return SocketResult::DISCONNECTED;
         sent += static_cast<size_t>(n);
@@ -282,7 +282,7 @@ SocketResult TcpChannel::recvRaw(void* data, size_t length, size_t& bytesRead) {
             bytesRead = 0;
             return SocketResult::WOULD_BLOCK;
         }
-        return SocketResult::ERROR;
+        return SocketResult::SOCK_ERROR;
     }
     if (n == 0) {
         bytesRead = 0;
@@ -293,7 +293,7 @@ SocketResult TcpChannel::recvRaw(void* data, size_t length, size_t& bytesRead) {
 }
 
 SocketResult TcpChannel::send(MessageType type, const void* data, uint32_t length) {
-    if (sock_ == INVALID_SOCK) return SocketResult::ERROR;
+    if (sock_ == INVALID_SOCK) return SocketResult::SOCK_ERROR;
 
     std::lock_guard<std::mutex> lock(sendMutex_);
 
@@ -320,7 +320,7 @@ SocketResult TcpChannel::send(MessageType type, const std::vector<uint8_t>& data
 }
 
 SocketResult TcpChannel::recv(MessageType& type, std::vector<uint8_t>& payload) {
-    if (sock_ == INVALID_SOCK) return SocketResult::ERROR;
+    if (sock_ == INVALID_SOCK) return SocketResult::SOCK_ERROR;
 
     // Read more data into the receive buffer
     if (recvPos_ < recvBuf_.size()) {
@@ -328,7 +328,7 @@ SocketResult TcpChannel::recv(MessageType& type, std::vector<uint8_t>& payload) 
         auto result = recvRaw(recvBuf_.data() + recvPos_,
                               recvBuf_.size() - recvPos_, bytesRead);
         if (result == SocketResult::DISCONNECTED) return SocketResult::DISCONNECTED;
-        if (result == SocketResult::ERROR) return SocketResult::ERROR;
+        if (result == SocketResult::SOCK_ERROR) return SocketResult::SOCK_ERROR;
         recvPos_ += bytesRead;
     }
 
@@ -339,7 +339,7 @@ SocketResult TcpChannel::recv(MessageType& type, std::vector<uint8_t>& payload) 
 
     ControlHeader hdr = ControlHeader::deserialize(recvBuf_.data());
     if (!hdr.valid()) {
-        return SocketResult::ERROR;
+        return SocketResult::SOCK_ERROR;
     }
 
     size_t totalSize = ControlHeader::SIZE + hdr.length;

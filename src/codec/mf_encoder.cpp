@@ -6,6 +6,7 @@
 #include <mfapi.h>
 #include <mftransform.h>
 #include <mferror.h>
+#include <icodecapi.h>
 #include <cstring>
 
 #pragma comment(lib, "mfplat.lib")

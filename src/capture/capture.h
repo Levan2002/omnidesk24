@@ -7,7 +7,7 @@
 namespace omnidesk {
 
 struct CaptureResult {
-    enum Status { OK, TIMEOUT, DISPLAY_CHANGED, ERROR };
+    enum Status { OK, TIMEOUT, DISPLAY_CHANGED, CAPTURE_ERR };
     Status status = OK;
     std::vector<Rect> dirtyRects;
     uint64_t captureTimeUs = 0;

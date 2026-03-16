@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
         } else if (strcmp(argv[i], "--monitor") == 0 && i + 1 < argc) {
             config.capture.monitorId = std::stoi(argv[++i]);
         } else if (strcmp(argv[i], "--debug") == 0) {
-            omnidesk::Logger::instance().setLevel(omnidesk::LogLevel::DEBUG);
+            omnidesk::Logger::instance().setLevel(omnidesk::LogLevel::DBG);
         } else if (strcmp(argv[i], "--help") == 0) {
             printUsage(argv[0]);
             return 0;

@@ -8,10 +8,10 @@
 namespace omnidesk {
 
 enum class LogLevel : uint8_t {
-    DEBUG,
+    DBG,
     INFO,
     WARN,
-    ERROR,
+    ERR,
 };
 
 class Logger {
@@ -29,9 +29,9 @@ private:
     std::mutex mutex_;
 };
 
-#define LOG_DEBUG(...) ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::DEBUG, __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_INFO(...)  ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::INFO,  __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_WARN(...)  ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::WARN,  __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_ERROR(...) ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::ERROR, __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_DEBUG(...) ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::DBG,  __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_INFO(...)  ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::INFO, __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_WARN(...)  ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::WARN, __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_ERROR(...) ::omnidesk::Logger::instance().log(::omnidesk::LogLevel::ERR,  __FILE__, __LINE__, __VA_ARGS__)
 
 } // namespace omnidesk

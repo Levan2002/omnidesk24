@@ -1,10 +1,7 @@
 #include "render/sharpening.h"
 #include "core/logger.h"
 
-#define GL_GLEXT_PROTOTYPES
-#include <GL/gl.h>
-#include <GL/glext.h>
-
+#include "render/gl_proc.h"
 #include <GLFW/glfw3.h>
 
 namespace omnidesk {

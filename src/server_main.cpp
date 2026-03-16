@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (debug) {
-        omnidesk::Logger::instance().setLevel(omnidesk::LogLevel::DEBUG);
+        omnidesk::Logger::instance().setLevel(omnidesk::LogLevel::DBG);
     }
 
     // Set up signal handlers for graceful shutdown

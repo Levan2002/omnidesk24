@@ -35,7 +35,7 @@ else()
 
     add_library(openh264 INTERFACE)
     target_include_directories(openh264 INTERFACE
-        ${openh264_src_SOURCE_DIR}/codec/api/wels
+        ${openh264_src_SOURCE_DIR}/codec/api
     )
 
     # Try to link against system lib, or leave for runtime loading

@@ -84,14 +84,14 @@ CaptureResult DxgiCapture::captureFrame(Frame& frame) {
     CaptureResult result;
 
     if (!initialized_) {
-        result.status = CaptureResult::ERROR;
+        result.status = CaptureResult::CAPTURE_ERR;
         return result;
     }
 
     // Handle pending reinitialisation (desktop switch or resolution change)
     if (needReinit_) {
         if (!handleDesktopSwitch()) {
-            result.status = CaptureResult::ERROR;
+            result.status = CaptureResult::CAPTURE_ERR;
             return result;
         }
     }
@@ -130,7 +130,7 @@ CaptureResult DxgiCapture::captureFrame(Frame& frame) {
 
     if (FAILED(hr)) {
         LOG_ERROR("DxgiCapture: AcquireNextFrame failed (hr=0x%08lX)", hr);
-        result.status = CaptureResult::ERROR;
+        result.status = CaptureResult::CAPTURE_ERR;
         return result;
     }
 
@@ -146,7 +146,7 @@ CaptureResult DxgiCapture::captureFrame(Frame& frame) {
     // Process the captured desktop texture
     if (!processFrame(desktopResource.Get(), frame)) {
         duplication_->ReleaseFrame();
-        result.status = CaptureResult::ERROR;
+        result.status = CaptureResult::CAPTURE_ERR;
         return result;
     }
 

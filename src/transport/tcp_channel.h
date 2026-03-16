@@ -37,7 +37,7 @@ enum class SocketResult {
     OK,
     WOULD_BLOCK,
     DISCONNECTED,
-    ERROR,
+    SOCK_ERROR,
 };
 
 // Callback for incoming messages

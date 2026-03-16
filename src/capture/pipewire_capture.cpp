@@ -117,7 +117,7 @@ CaptureResult PipeWireCapture::captureFrame(Frame& frame) {
     CaptureResult result;
 
     if (!initialized_) {
-        result.status = CaptureResult::ERROR;
+        result.status = CaptureResult::CAPTURE_ERR;
         return result;
     }
 

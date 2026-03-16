@@ -90,6 +90,9 @@ endif()
 
 add_library(omnidesk_capture STATIC ${CAPTURE_SOURCES})
 target_link_libraries(omnidesk_capture PUBLIC omnidesk_core)
+if(OMNIDESK_PLATFORM_WINDOWS)
+    target_link_libraries(omnidesk_capture PRIVATE d3d11 dxgi)
+endif()
 if(X11_FOUND)
     target_include_directories(omnidesk_capture PRIVATE ${X11_INCLUDE_DIRS})
     target_link_libraries(omnidesk_capture PRIVATE ${X11_LIBRARIES})
@@ -146,6 +149,9 @@ if(OMNIDESK_PLATFORM_LINUX OR OMNIDESK_PLATFORM_WINDOWS)
 endif()
 if(OMNIDESK_PLATFORM_WINDOWS)
     target_link_libraries(omnidesk_codec PRIVATE mfplat mfuuid mf wmcodecdspuuid)
+    # Link against openh264 import lib generated from GIMP's bundled DLL
+    target_link_libraries(omnidesk_codec PRIVATE
+        ${CMAKE_BINARY_DIR}/libopenh264.dll.a)
 endif()
 
 endif() # NOT OMNIDESK_SERVER_ONLY
@@ -183,10 +189,14 @@ add_library(omnidesk_render STATIC
     src/render/gl_renderer.cpp
     src/render/cursor_overlay.cpp
     src/render/sharpening.cpp
+    src/render/gl_proc.cpp
 )
 target_link_libraries(omnidesk_render PUBLIC omnidesk_core glfw)
 if(OMNIDESK_PLATFORM_LINUX)
     target_link_libraries(omnidesk_render PRIVATE GL)
+endif()
+if(OMNIDESK_PLATFORM_WINDOWS)
+    target_link_libraries(omnidesk_render PRIVATE opengl32)
 endif()
 
 # Input

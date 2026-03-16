@@ -12,6 +12,7 @@
 #include "session/viewer_session.h"
 #include "core/logger.h"
 
+#include "render/gl_proc.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -47,6 +48,7 @@ bool App::init(const AppConfig& config) {
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1); // VSync
 
+    loadGLProcs();
     initImGui();
 
     // Generate or load user ID
