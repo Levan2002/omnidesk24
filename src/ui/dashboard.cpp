@@ -14,9 +14,11 @@ void Dashboard::render(const UserID& myId,
     float winW = io.DisplaySize.x;
     float winH = io.DisplaySize.y;
 
-    // Main dashboard - centered card
-    float cardW = 480.0f;
-    float cardH = 400.0f;
+    // Main dashboard - centered card, scales with window size
+    float uiScale = winW / 1280.0f < winH / 800.0f ? winW / 1280.0f : winH / 800.0f;
+    if (uiScale < 1.0f) uiScale = 1.0f;
+    float cardW = 480.0f * uiScale;
+    float cardH = 400.0f * uiScale;
     ImGui::SetNextWindowPos(ImVec2(winW * 0.5f, winH * 0.45f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(cardW, cardH));
 
@@ -56,7 +58,7 @@ void Dashboard::render(const UserID& myId,
     // Large ID display with copy button
     {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.12f, 0.14f, 1.0f));
-        ImGui::BeginChild("##IdDisplay", ImVec2(-1, 52), true);
+        ImGui::BeginChild("##IdDisplay", ImVec2(-1, 52.0f * uiScale), true);
 
         // Center the ID text
         float idW = ImGui::CalcTextSize(myId.id.c_str()).x * 1.8f;
@@ -93,7 +95,7 @@ void Dashboard::render(const UserID& myId,
     ImGui::PopItemWidth();
 
     ImGui::SameLine();
-    bool connectClicked = ImGui::Button("Connect", ImVec2(84, 0));
+    bool connectClicked = ImGui::Button("Connect", ImVec2(84.0f * uiScale, 0));
 
     if ((enterPressed || connectClicked) && connectIdBuf[0] != '\0') {
         onConnect();
@@ -108,8 +110,8 @@ void Dashboard::render(const UserID& myId,
     }
 
     // Settings button (bottom right)
-    ImGui::SetCursorPos(ImVec2(cardW - 100, cardH - 52));
-    if (ImGui::Button("Settings", ImVec2(80, 28))) {
+    ImGui::SetCursorPos(ImVec2(cardW - 100.0f * uiScale, cardH - 52.0f * uiScale));
+    if (ImGui::Button("Settings", ImVec2(80.0f * uiScale, 28.0f * uiScale))) {
         onSettings();
     }
 

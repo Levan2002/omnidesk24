@@ -34,6 +34,7 @@ bool App::init(const AppConfig& config) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
     window_ = glfwCreateWindow(config_.windowWidth, config_.windowHeight,
                                "OmniDesk24", nullptr, nullptr);
@@ -75,7 +76,16 @@ void App::initImGui() {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
+    float xscale = 1.0f, yscale = 1.0f;
+    glfwGetWindowContentScale(window_, &xscale, &yscale);
+    float dpiScale = xscale > 0.0f ? xscale : 1.0f;
+
+    ImFontConfig fontCfg;
+    fontCfg.SizePixels = 16.0f * dpiScale;
+    io.Fonts->AddFontDefault(&fontCfg);
+
     Theme::apply();
+    ImGui::GetStyle().ScaleAllSizes(dpiScale);
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");

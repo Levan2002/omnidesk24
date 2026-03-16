@@ -51,17 +51,6 @@ void SettingsPanel::render(AppConfig& config, bool* open) {
 
         // Network tab
         if (ImGui::BeginTabItem("Network")) {
-            char hostBuf[256];
-            strncpy(hostBuf, config.signalingHost.c_str(), sizeof(hostBuf) - 1);
-            hostBuf[sizeof(hostBuf) - 1] = '\0';
-            if (ImGui::InputText("Signaling Server", hostBuf, sizeof(hostBuf))) {
-                config.signalingHost = hostBuf;
-            }
-
-            int port = config.signalingPort;
-            ImGui::InputInt("Signaling Port", &port);
-            config.signalingPort = static_cast<uint16_t>(std::max(1, std::min(65535, port)));
-
             ImGui::Spacing();
             ImGui::Text("FEC Strength:");
             static int fecStrength = 1;

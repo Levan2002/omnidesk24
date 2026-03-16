@@ -22,7 +22,7 @@ enum class AppState {
 };
 
 struct AppConfig {
-    std::string signalingHost = "127.0.0.1";
+    std::string signalingHost = "omnidesk24.com";
     uint16_t signalingPort = 9800;
     EncoderConfig encoder;
     CaptureConfig capture;
