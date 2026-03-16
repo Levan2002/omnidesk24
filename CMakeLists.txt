@@ -112,6 +112,13 @@ set(CODEC_SOURCES
 if(OMNIDESK_PLATFORM_LINUX AND VAAPI_FOUND)
     list(APPEND CODEC_SOURCES src/codec/vaapi_encoder.cpp)
 endif()
+if(OMNIDESK_PLATFORM_LINUX)
+    list(APPEND CODEC_SOURCES src/codec/nvenc_encoder.cpp)
+endif()
+if(OMNIDESK_PLATFORM_WINDOWS)
+    list(APPEND CODEC_SOURCES src/codec/nvenc_encoder.cpp)
+    list(APPEND CODEC_SOURCES src/codec/mf_encoder.cpp)
+endif()
 
 add_library(omnidesk_codec STATIC ${CODEC_SOURCES})
 target_link_libraries(omnidesk_codec PUBLIC omnidesk_core openh264)
@@ -119,6 +126,18 @@ if(VAAPI_FOUND)
     target_link_libraries(omnidesk_codec PRIVATE ${VAAPI_LIBRARIES})
     target_include_directories(omnidesk_codec PRIVATE ${VAAPI_INCLUDE_DIRS})
     target_compile_definitions(omnidesk_codec PRIVATE OMNIDESK_HAS_VAAPI)
+endif()
+# NVENC: compile the source unconditionally on supported platforms;
+# the #ifdef OMNIDESK_HAS_NVENC guard inside the file keeps it a no-op
+# unless the NVENC library is detected at runtime.
+if(OMNIDESK_PLATFORM_LINUX OR OMNIDESK_PLATFORM_WINDOWS)
+    target_compile_definitions(omnidesk_codec PRIVATE OMNIDESK_HAS_NVENC)
+    if(OMNIDESK_PLATFORM_LINUX)
+        target_link_libraries(omnidesk_codec PRIVATE dl)
+    endif()
+endif()
+if(OMNIDESK_PLATFORM_WINDOWS)
+    target_link_libraries(omnidesk_codec PRIVATE mfplat mfuuid mf wmcodecdspuuid)
 endif()
 
 # Transport

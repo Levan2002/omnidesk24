@@ -3,6 +3,16 @@
 #include "codec/openh264_decoder.h"
 #include "core/logger.h"
 
+#ifdef OMNIDESK_HAS_NVENC
+#include "codec/nvenc_encoder.h"
+#endif
+#ifdef OMNIDESK_HAS_VAAPI
+#include "codec/vaapi_encoder.h"
+#endif
+#ifdef OMNIDESK_PLATFORM_WINDOWS
+#include "codec/mf_encoder.h"
+#endif
+
 #ifdef _WIN32
 #include <windows.h>
 #elif defined(__linux__)
@@ -148,16 +158,25 @@ std::unique_ptr<IDecoder> CodecFactory::createDecoder() {
 std::unique_ptr<IEncoder> CodecFactory::createEncoder(CodecBackend backend) {
     switch (backend) {
         case CodecBackend::NVENC:
-            // TODO: Implement NvencEncoder wrapper
+#ifdef OMNIDESK_HAS_NVENC
+            return std::make_unique<NvencEncoder>();
+#else
             return nullptr;
+#endif
 
         case CodecBackend::VAAPI:
-            // TODO: Implement VaapiEncoder wrapper
+#ifdef OMNIDESK_HAS_VAAPI
+            return std::make_unique<VaapiEncoder>();
+#else
             return nullptr;
+#endif
 
         case CodecBackend::MF:
-            // TODO: Implement MediaFoundationEncoder wrapper
+#ifdef OMNIDESK_PLATFORM_WINDOWS
+            return std::make_unique<MFEncoder>();
+#else
             return nullptr;
+#endif
 
         case CodecBackend::OpenH264:
             return std::make_unique<OpenH264Encoder>();
@@ -169,16 +188,25 @@ std::unique_ptr<IEncoder> CodecFactory::createEncoder(CodecBackend backend) {
 std::unique_ptr<IDecoder> CodecFactory::createDecoder(CodecBackend backend) {
     switch (backend) {
         case CodecBackend::NVENC:
-            // TODO: Implement CUVID/NVDEC decoder wrapper
+#ifdef OMNIDESK_HAS_NVENC
+            return std::make_unique<NvdecDecoder>();
+#else
             return nullptr;
+#endif
 
         case CodecBackend::VAAPI:
-            // TODO: Implement VAAPI decoder wrapper
+#ifdef OMNIDESK_HAS_VAAPI
+            return std::make_unique<VaapiDecoder>();
+#else
             return nullptr;
+#endif
 
         case CodecBackend::MF:
-            // TODO: Implement Media Foundation decoder wrapper
+#ifdef OMNIDESK_PLATFORM_WINDOWS
+            return std::make_unique<MFDecoder>();
+#else
             return nullptr;
+#endif
 
         case CodecBackend::OpenH264:
             return std::make_unique<OpenH264Decoder>();
