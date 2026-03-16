@@ -210,9 +210,34 @@ target_link_libraries(omnidesk_session PUBLIC
 # UI depends on session and signaling (app.cpp orchestrates everything)
 target_link_libraries(omnidesk_ui PUBLIC omnidesk_session omnidesk_signaling omnidesk_render)
 
-# Main executable
+# Main executable (GUI app)
 add_executable(omnidesk24 src/main.cpp)
 target_link_libraries(omnidesk24 PRIVATE omnidesk_ui omnidesk_session)
+
+# Standalone signaling server (no GUI dependencies)
+option(OMNIDESK_BUILD_SERVER "Build standalone signaling server" ON)
+if(OMNIDESK_BUILD_SERVER)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(LIBPQ QUIET libpq)
+    endif()
+
+    add_library(omnidesk_database STATIC src/signaling/database.cpp)
+    target_include_directories(omnidesk_database PUBLIC src)
+    target_link_libraries(omnidesk_database PUBLIC omnidesk_core)
+    if(LIBPQ_FOUND)
+        target_include_directories(omnidesk_database PRIVATE ${LIBPQ_INCLUDE_DIRS})
+        target_link_libraries(omnidesk_database PRIVATE ${LIBPQ_LIBRARIES})
+    else()
+        # Try direct linking (works on most systems with libpq-dev installed)
+        target_link_libraries(omnidesk_database PRIVATE pq)
+    endif()
+
+    add_executable(omnidesk24-server src/server_main.cpp)
+    target_link_libraries(omnidesk24-server PRIVATE
+        omnidesk_signaling omnidesk_database
+    )
+endif()
 
 # Tests
 option(OMNIDESK_BUILD_TESTS "Build tests" ON)

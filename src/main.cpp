@@ -1,8 +1,11 @@
 #include "ui/app.h"
+#include "signaling/signaling_server.h"
 #include "core/logger.h"
 
+#include <chrono>
 #include <cstring>
 #include <string>
+#include <thread>
 
 static void printUsage(const char* argv0) {
     fprintf(stderr, "Usage: %s [options]\n", argv0);
@@ -50,12 +53,18 @@ int main(int argc, char* argv[]) {
 
     if (serverMode) {
         LOG_INFO("Running in signaling server mode on port %d", config.signalingPort);
-        // TODO: Run signaling server standalone
-        // SignalingServer server;
-        // server.start(config.signalingPort);
-        // server.run(); // blocks
-        LOG_ERROR("Standalone signaling server not yet implemented");
-        return 1;
+        LOG_INFO("Use the dedicated omnidesk24-server binary for production deployment.");
+        omnidesk::SignalingServer server;
+        if (!server.start(config.signalingPort)) {
+            LOG_ERROR("Failed to start signaling server on port %d", config.signalingPort);
+            return 1;
+        }
+        LOG_INFO("Signaling server running. Press Ctrl+C to stop.");
+        // Block until the server stops
+        while (server.isRunning()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        return 0;
     }
 
     // Normal mode: launch GUI app
