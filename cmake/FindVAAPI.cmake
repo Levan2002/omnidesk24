@@ -1,0 +1,17 @@
+# Find VAAPI (Video Acceleration API) for hardware H.264 encoding on Linux
+set(VAAPI_FOUND FALSE)
+
+if(OMNIDESK_PLATFORM_LINUX)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(VAAPI_PKG QUIET libva libva-drm)
+        if(VAAPI_PKG_FOUND)
+            set(VAAPI_FOUND TRUE)
+            set(VAAPI_INCLUDE_DIRS ${VAAPI_PKG_INCLUDE_DIRS})
+            set(VAAPI_LIBRARIES ${VAAPI_PKG_LIBRARIES})
+            message(STATUS "VAAPI found: ${VAAPI_PKG_VERSION}")
+        else()
+            message(STATUS "VAAPI not found - hardware encoding disabled")
+        endif()
+    endif()
+endif()
