@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Server-only mode: builds just the signaling server with no GUI deps
+option(OMNIDESK_SERVER_ONLY "Build only the signaling server (no GUI)" OFF)
+
 # Platform detection
 include(cmake/Platform.cmake)
 
@@ -28,18 +31,20 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_options(-O3)
 endif()
 
-# Dependencies
-include(cmake/FetchDeps.cmake)
-include(cmake/FetchOpenH264.cmake)
+# Dependencies (skip GUI deps in server-only mode)
+if(NOT OMNIDESK_SERVER_ONLY)
+    include(cmake/FetchDeps.cmake)
+    include(cmake/FetchOpenH264.cmake)
 
-# Optional hardware encoder dependencies
-if(OMNIDESK_PLATFORM_LINUX)
-    include(cmake/FindVAAPI.cmake)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(PIPEWIRE QUIET libpipewire-0.3)
-        pkg_check_modules(X11 QUIET x11 xdamage xfixes xext xrandr)
-        pkg_check_modules(XCB QUIET xcb xcb-shm xcb-xfixes)
+    # Optional hardware encoder dependencies
+    if(OMNIDESK_PLATFORM_LINUX)
+        include(cmake/FindVAAPI.cmake)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(PIPEWIRE QUIET libpipewire-0.3)
+            pkg_check_modules(X11 QUIET x11 xdamage xfixes xext xrandr)
+            pkg_check_modules(XCB QUIET xcb xcb-shm xcb-xfixes)
+        endif()
     endif()
 endif()
 
@@ -65,6 +70,9 @@ if(OMNIDESK_X86_64)
     target_compile_options(omnidesk_avx2 PRIVATE -mavx2)
     target_link_libraries(omnidesk_core PRIVATE omnidesk_avx2)
 endif()
+
+# ---- GUI-dependent libraries (skipped in server-only mode) ----
+if(NOT OMNIDESK_SERVER_ONLY)
 
 # Screen capture
 set(CAPTURE_SOURCES src/capture/capture_factory.cpp)
@@ -140,6 +148,8 @@ if(OMNIDESK_PLATFORM_WINDOWS)
     target_link_libraries(omnidesk_codec PRIVATE mfplat mfuuid mf wmcodecdspuuid)
 endif()
 
+endif() # NOT OMNIDESK_SERVER_ONLY
+
 # Transport
 add_library(omnidesk_transport STATIC
     src/transport/tcp_channel.cpp
@@ -164,6 +174,9 @@ add_library(omnidesk_signaling STATIC
     src/signaling/user_id.cpp
 )
 target_link_libraries(omnidesk_signaling PUBLIC omnidesk_core omnidesk_transport)
+
+# ---- GUI app targets (skipped in server-only mode) ----
+if(NOT OMNIDESK_SERVER_ONLY)
 
 # Render
 add_library(omnidesk_render STATIC
@@ -214,10 +227,14 @@ target_link_libraries(omnidesk_ui PUBLIC omnidesk_session omnidesk_signaling omn
 add_executable(omnidesk24 src/main.cpp)
 target_link_libraries(omnidesk24 PRIVATE omnidesk_ui omnidesk_session)
 
+endif() # NOT OMNIDESK_SERVER_ONLY
+
 # Standalone signaling server (no GUI dependencies)
 option(OMNIDESK_BUILD_SERVER "Build standalone signaling server" ON)
 if(OMNIDESK_BUILD_SERVER)
-    find_package(PkgConfig QUIET)
+    if(NOT PkgConfig_FOUND)
+        find_package(PkgConfig QUIET)
+    endif()
     if(PkgConfig_FOUND)
         pkg_check_modules(LIBPQ QUIET libpq)
     endif()
@@ -239,15 +256,15 @@ if(OMNIDESK_BUILD_SERVER)
     )
 endif()
 
-# Tests
+# Tests (require full build, not server-only)
 option(OMNIDESK_BUILD_TESTS "Build tests" ON)
-if(OMNIDESK_BUILD_TESTS)
+if(OMNIDESK_BUILD_TESTS AND NOT OMNIDESK_SERVER_ONLY)
     enable_testing()
     add_subdirectory(tests)
 endif()
 
 # Benchmarks
 option(OMNIDESK_BUILD_BENCHMARKS "Build benchmarks" OFF)
-if(OMNIDESK_BUILD_BENCHMARKS)
+if(OMNIDESK_BUILD_BENCHMARKS AND NOT OMNIDESK_SERVER_ONLY)
     add_subdirectory(tests/benchmark)
 endif()
