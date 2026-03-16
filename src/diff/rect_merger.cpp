@@ -75,7 +75,14 @@ std::vector<Rect> RectMerger::mergeOverlapping(const std::vector<Rect>& rects) {
         merged = false;
         for (size_t i = 0; i < result.size(); ++i) {
             for (size_t j = i + 1; j < result.size(); ++j) {
-                if (result[i].intersects(result[j])) {
+                // Merge overlapping AND adjacent (touching) rects.
+                // intersects() uses strict inequalities, so we also check
+                // for the adjacent case (edges exactly touching).
+                auto touches = [](const Rect& a, const Rect& b) {
+                    return a.x <= b.right() && a.right() >= b.x &&
+                           a.y <= b.bottom() && a.bottom() >= b.y;
+                };
+                if (touches(result[i], result[j])) {
                     result[i] = result[i].united(result[j]);
                     result.erase(result.begin() + static_cast<ptrdiff_t>(j));
                     merged = true;

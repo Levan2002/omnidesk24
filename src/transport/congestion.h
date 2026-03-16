@@ -93,6 +93,8 @@ private:
     TimePoint lastIncreaseTime_;
     TimePoint lastDecreaseTime_;
     static constexpr int MIN_DECREASE_INTERVAL_MS = 200;  // Min time between decreases
+    uint32_t acksSinceLastIncrease_ = 0;
+    uint32_t lossesSinceLastDecrease_ = 0;
 
     // Packet history
     std::deque<PacketRecord> packetHistory_;

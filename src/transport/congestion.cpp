@@ -57,17 +57,23 @@ void CongestionController::onAckReceived(uint64_t seqNum, float rttMs) {
         lossWindow_.pop_front();
     }
 
-    // Additive increase: grow bitrate by 5% per RTT
-    auto now = Clock::now();
-    float msSinceIncrease = std::chrono::duration<float, std::milli>(
-        now - lastIncreaseTime_).count();
-
-    if (msSinceIncrease >= smoothedRttMs_ && delayGradient_ <= 0.0f) {
-        float increase = static_cast<float>(targetBitrateBps_) * ADDITIVE_INCREASE_FACTOR;
-        targetBitrateBps_ = std::min(
-            static_cast<uint32_t>(targetBitrateBps_ + increase),
-            MAX_BITRATE_BPS);
-        lastIncreaseTime_ = now;
+    // Additive increase: grow bitrate by a fraction per ACK.
+    // Spread the per-RTT increase across all ACKs received in that RTT window.
+    // Estimate: one RTT's worth of ACKs ~ (bitrate / packetSize / 8) * RTT,
+    // but for simplicity, apply a small per-ACK increment that accumulates.
+    if (delayGradient_ <= 0.0f) {
+        // Apply a per-ACK increase that is a fraction of the per-RTT increase.
+        // We scale by 1/acksSinceIncrease to approximate per-RTT behavior.
+        acksSinceLastIncrease_++;
+        // Apply increase every N acks (approximate one RTT worth of packets)
+        constexpr uint32_t ACKS_PER_INCREASE = 10;
+        if (acksSinceLastIncrease_ >= ACKS_PER_INCREASE) {
+            float increase = static_cast<float>(targetBitrateBps_) * ADDITIVE_INCREASE_FACTOR;
+            targetBitrateBps_ = std::min(
+                static_cast<uint32_t>(targetBitrateBps_ + increase),
+                MAX_BITRATE_BPS);
+            acksSinceLastIncrease_ = 0;
+        }
     }
 
     updateLossRate();
@@ -90,17 +96,16 @@ void CongestionController::onLoss(uint64_t seqNum) {
     }
 
     // Multiplicative decrease: reduce bitrate by 15%
-    auto now = Clock::now();
-    float msSinceDecrease = std::chrono::duration<float, std::milli>(
-        now - lastDecreaseTime_).count();
-
-    if (msSinceDecrease >= MIN_DECREASE_INTERVAL_MS) {
+    // Apply decrease every N loss events to avoid over-reacting
+    lossesSinceLastDecrease_++;
+    constexpr uint32_t LOSSES_PER_DECREASE = 3;
+    if (lossesSinceLastDecrease_ >= LOSSES_PER_DECREASE) {
         float decrease = static_cast<float>(targetBitrateBps_) *
                          MULTIPLICATIVE_DECREASE_FACTOR;
         targetBitrateBps_ = std::max(
             static_cast<uint32_t>(targetBitrateBps_ - decrease),
             MIN_BITRATE_BPS);
-        lastDecreaseTime_ = now;
+        lossesSinceLastDecrease_ = 0;
     }
 
     updateLossRate();
@@ -137,6 +142,8 @@ void CongestionController::reset() {
     lossWindow_.clear();
     lastIncreaseTime_ = Clock::now();
     lastDecreaseTime_ = Clock::now();
+    acksSinceLastIncrease_ = 0;
+    lossesSinceLastDecrease_ = 0;
     packetHistory_.clear();
 }
 
@@ -169,16 +176,10 @@ void CongestionController::updateDelayGradient(float rttMs) {
 
         // If delay is consistently increasing, reduce bitrate
         if (delayGradient_ > 1.0f) {
-            auto now = Clock::now();
-            float msSinceDecrease = std::chrono::duration<float, std::milli>(
-                now - lastDecreaseTime_).count();
-            if (msSinceDecrease >= MIN_DECREASE_INTERVAL_MS) {
-                float decrease = static_cast<float>(targetBitrateBps_) * 0.05f;
-                targetBitrateBps_ = std::max(
-                    static_cast<uint32_t>(targetBitrateBps_ - decrease),
-                    MIN_BITRATE_BPS);
-                lastDecreaseTime_ = now;
-            }
+            float decrease = static_cast<float>(targetBitrateBps_) * 0.05f;
+            targetBitrateBps_ = std::max(
+                static_cast<uint32_t>(targetBitrateBps_ - decrease),
+                MIN_BITRATE_BPS);
         }
     }
     prevRttMs_ = rttMs;

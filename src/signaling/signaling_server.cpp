@@ -19,7 +19,8 @@ bool SignalingServer::start(uint16_t port) {
 
     if (!listener_.listen(port)) return false;
 
-    port_ = port;
+    // Retrieve the actual port (important when port=0 for OS-assigned ports)
+    port_ = listener_.localPort();
     running_ = true;
     serverThread_ = std::thread(&SignalingServer::serverLoop, this);
     return true;
@@ -94,10 +95,14 @@ void SignalingServer::serverLoop() {
                 auto& client = *it;
                 if (!client->isOpen()) {
                     // Client disconnected - remove from users
-                    UserID uid = findUserByChannel(client.get());
-                    if (uid.valid()) {
+                    {
                         std::lock_guard<std::mutex> ulock(usersMutex_);
-                        users_.erase(uid.id);
+                        for (auto uit = users_.begin(); uit != users_.end(); ++uit) {
+                            if (uit->second.channel.get() == client.get()) {
+                                users_.erase(uit);
+                                break;
+                            }
+                        }
                     }
                     it = clients_.erase(it);
                     continue;
@@ -112,10 +117,14 @@ void SignalingServer::serverLoop() {
                     std::string jsonStr(payload.begin(), payload.end());
                     handleClientMessage(client, jsonStr);
                 } else if (result == SocketResult::DISCONNECTED) {
-                    UserID uid = findUserByChannel(client.get());
-                    if (uid.valid()) {
+                    {
                         std::lock_guard<std::mutex> ulock(usersMutex_);
-                        users_.erase(uid.id);
+                        for (auto uit = users_.begin(); uit != users_.end(); ++uit) {
+                            if (uit->second.channel.get() == client.get()) {
+                                users_.erase(uit);
+                                break;
+                            }
+                        }
                     }
                     client->close();
                     it = clients_.erase(it);

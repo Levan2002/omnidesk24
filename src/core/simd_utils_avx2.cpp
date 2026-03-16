@@ -1,13 +1,12 @@
 #include "core/simd_utils.h"
 
-#ifdef OMNIDESK_X86_64
 #include <immintrin.h>
-#endif
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 
 namespace omnidesk {
 namespace avx2 {
-
-#ifdef OMNIDESK_X86_64
 
 void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
                 uint8_t* yPlane, int yStride,
@@ -16,10 +15,10 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
     // AVX2 processes 8 BGRA pixels (32 bytes) at a time for Y plane
     // BT.601: Y = (66*R + 129*G + 25*B + 128) >> 8 + 16
 
-    const __m256i coeff_r = _mm256_set1_epi16(66);
-    const __m256i coeff_g = _mm256_set1_epi16(129);
-    const __m256i coeff_b = _mm256_set1_epi16(25);
-    const __m256i offset_y = _mm256_set1_epi16(16);
+    // BT.601 full range: Y = (77*R + 150*G + 29*B + 128) >> 8
+    const __m256i coeff_r = _mm256_set1_epi16(77);
+    const __m256i coeff_g = _mm256_set1_epi16(150);
+    const __m256i coeff_b = _mm256_set1_epi16(29);
     const __m256i round_add = _mm256_set1_epi16(128);
 
     for (int y = 0; y < height; ++y) {
@@ -55,7 +54,7 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
                     round_add
                 )
             );
-            yy = _mm256_add_epi16(_mm256_srli_epi16(yy, 8), offset_y);
+            yy = _mm256_srli_epi16(yy, 8);
 
             // Pack to uint8 and store
             __m256i y8 = _mm256_packus_epi16(yy, _mm256_setzero_si256());
@@ -74,8 +73,8 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
         // Scalar remainder
         for (; x < width; ++x) {
             int b = row[x*4+0], g = row[x*4+1], r = row[x*4+2];
-            int yVal = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
-            yRow[x] = static_cast<uint8_t>(std::min(std::max(yVal, 16), 235));
+            int yVal = (77 * r + 150 * g + 29 * b + 128) >> 8;
+            yRow[x] = static_cast<uint8_t>(std::min(std::max(yVal, 0), 255));
         }
 
         // Chroma (U, V) - same as SSE2 path but could be AVX2-optimized later
@@ -89,11 +88,11 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
                 int g = (row[cx*4+1] + row[(cx+1)*4+1] + row2[cx*4+1] + row2[(cx+1)*4+1]) / 4;
                 int r = (row[cx*4+2] + row[(cx+1)*4+2] + row2[cx*4+2] + row2[(cx+1)*4+2]) / 4;
 
-                int u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
-                int v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
+                int u = ((-43 * r - 85 * g + 128 * b + 128) >> 8) + 128;
+                int v = ((128 * r - 107 * g - 21 * b + 128) >> 8) + 128;
 
-                uRow[cx / 2] = static_cast<uint8_t>(std::min(std::max(u, 16), 240));
-                vRow[cx / 2] = static_cast<uint8_t>(std::min(std::max(v, 16), 240));
+                uRow[cx / 2] = static_cast<uint8_t>(std::min(std::max(u, 0), 255));
+                vRow[cx / 2] = static_cast<uint8_t>(std::min(std::max(v, 0), 255));
             }
         }
     }
@@ -137,15 +136,6 @@ bool blocksDiffer(const uint8_t* blockA, const uint8_t* blockB,
     }
     return diffCount > threshold;
 }
-
-#else
-
-// Non-x86: stubs that should never be called (cpuSupportsAVX2 returns false)
-void bgraToI420(const uint8_t*, int, int, int,
-                uint8_t*, int, uint8_t*, int, uint8_t*, int) {}
-bool blocksDiffer(const uint8_t*, const uint8_t*, int, int, int) { return false; }
-
-#endif
 
 } // namespace avx2
 } // namespace omnidesk

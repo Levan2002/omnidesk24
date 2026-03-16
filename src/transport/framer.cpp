@@ -83,7 +83,7 @@ std::vector<FramePacketizer::Fragment> FramePacketizer::packetize(
         vh.fragCount = fragCount;
         vh.fecGroup = fecGroupId;
         vh.flags = flags;
-        vh.rectCount = 0;
+        vh.rectCount = static_cast<uint8_t>(parityPackets.size());  // Store total parity count
 
         Fragment frag;
         frag.fragId = pp.index;
@@ -134,9 +134,17 @@ bool FrameAssembler::addFragment(const uint8_t* data, size_t length) {
         frame.rectCount = vh.rectCount;
     }
 
-    // Store fragment payload (only data fragments, not parity for now)
+    // Store fragment payload
     if (vh.fragId < vh.fragCount) {
+        // Data fragment
         frame.fragments[vh.fragId] = std::vector<uint8_t>(payload, payload + payloadLen);
+    } else {
+        // Parity fragment (fragId >= fragCount)
+        frame.parityFragments[vh.fragId] = std::vector<uint8_t>(payload, payload + payloadLen);
+        // rectCount in parity fragments stores the total parity count
+        if (vh.rectCount > 0 && frame.totalParityCount == 0) {
+            frame.totalParityCount = vh.rectCount;
+        }
     }
 
     // Update rect count from first fragment
@@ -156,11 +164,62 @@ bool FrameAssembler::tryAssemble(PartialFrame& frame) {
     if (frame.complete) return true;
 
     // Check if all data fragments are present
-    if (frame.fragments.size() < frame.fragCount) return false;
-
-    for (uint16_t i = 0; i < frame.fragCount; ++i) {
-        if (frame.fragments.find(i) == frame.fragments.end()) return false;
+    bool allDataPresent = true;
+    if (frame.fragments.size() < frame.fragCount) {
+        allDataPresent = false;
+    } else {
+        for (uint16_t i = 0; i < frame.fragCount; ++i) {
+            if (frame.fragments.find(i) == frame.fragments.end()) {
+                allDataPresent = false;
+                break;
+            }
+        }
     }
+
+    // If not all data fragments present, try FEC recovery.
+    // The total parity count is encoded in parity fragments' rectCount field.
+    // Only attempt recovery once we have received all expected parity fragments.
+    if (!allDataPresent && !frame.parityFragments.empty() && frame.totalParityCount > 0) {
+        if (frame.parityFragments.size() < frame.totalParityCount) {
+            // Not all parity fragments received yet; wait for more.
+            return false;
+        }
+        FecDecoder decoder;
+        decoder.setExpectedCount(frame.fragCount, frame.totalParityCount);
+
+        // Add received data fragments
+        for (const auto& [fragId, payload] : frame.fragments) {
+            FecPacket fp;
+            fp.data = payload;
+            fp.index = fragId;
+            fp.groupId = frame.fecGroup;
+            fp.isParity = false;
+            decoder.addPacket(fp);
+        }
+
+        // Add received parity fragments
+        for (const auto& [fragId, payload] : frame.parityFragments) {
+            FecPacket fp;
+            fp.data = payload;
+            fp.index = fragId;
+            fp.groupId = frame.fecGroup;
+            fp.isParity = true;
+            decoder.addPacket(fp);
+        }
+
+        if (decoder.tryRecover()) {
+            // Copy recovered data packets back into frame.fragments
+            auto recovered = decoder.getDataPackets();
+            for (auto& pkt : recovered) {
+                if (frame.fragments.find(pkt.index) == frame.fragments.end()) {
+                    frame.fragments[pkt.index] = std::move(pkt.data);
+                }
+            }
+            allDataPresent = (frame.fragments.size() >= frame.fragCount);
+        }
+    }
+
+    if (!allDataPresent) return false;
 
     // All fragments present - reassemble
     EncodedPacket packet;

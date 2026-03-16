@@ -12,7 +12,11 @@ FecEncoder::FecEncoder() = default;
 FecEncoder::~FecEncoder() = default;
 
 void FecEncoder::setProtectionRatio(float ratio) {
-    ratio_ = std::clamp(ratio, minRatio_, maxRatio_);
+    if (ratio <= 0.0f) {
+        ratio_ = 0.0f;
+    } else {
+        ratio_ = std::clamp(ratio, minRatio_, maxRatio_);
+    }
 }
 
 void FecEncoder::adaptToLossRate(float lossRate) {
@@ -248,7 +252,14 @@ uint16_t FecDecoder::receivedParityCount() const {
 }
 
 bool FecDecoder::isComplete() const {
-    return group_.recovered;
+    if (group_.recovered) return true;
+
+    // Also complete if all data packets have been received
+    if (group_.expectedDataCount == 0) return false;
+    for (size_t i = 0; i < group_.expectedDataCount; ++i) {
+        if (!group_.dataReceived[i]) return false;
+    }
+    return true;
 }
 
 void FecDecoder::reset() {

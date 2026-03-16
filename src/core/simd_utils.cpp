@@ -29,6 +29,11 @@ static void bgraToI420_sse2(const uint8_t* bgra, int width, int height, int bgra
                             uint8_t* yPlane, int yStride,
                             uint8_t* uPlane, int uStride,
                             uint8_t* vPlane, int vStride) {
+    // BT.601 full range conversion
+    // Y  =  0.299*R + 0.587*G + 0.114*B
+    // Cb = -0.169*R - 0.331*G + 0.500*B + 128
+    // Cr =  0.500*R - 0.419*G - 0.081*B + 128
+    // Fixed point *256: Y = (77*R + 150*G + 29*B + 128) >> 8
     for (int y = 0; y < height; ++y) {
         const uint8_t* row = bgra + y * bgraStride;
         uint8_t* yRow = yPlane + y * yStride;
@@ -38,9 +43,8 @@ static void bgraToI420_sse2(const uint8_t* bgra, int width, int height, int bgra
             int g = row[x * 4 + 1];
             int r = row[x * 4 + 2];
 
-            // BT.601 coefficients (fixed point *256)
-            int yVal = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
-            yRow[x] = static_cast<uint8_t>(std::min(std::max(yVal, 16), 235));
+            int yVal = (77 * r + 150 * g + 29 * b + 128) >> 8;
+            yRow[x] = static_cast<uint8_t>(std::min(std::max(yVal, 0), 255));
         }
 
         // Chroma subsampling: one U,V per 2x2 block
@@ -55,11 +59,11 @@ static void bgraToI420_sse2(const uint8_t* bgra, int width, int height, int bgra
                 int g = (row[x*4+1] + row[(x+1)*4+1] + row2[x*4+1] + row2[(x+1)*4+1]) / 4;
                 int r = (row[x*4+2] + row[(x+1)*4+2] + row2[x*4+2] + row2[(x+1)*4+2]) / 4;
 
-                int u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
-                int v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
+                int u = ((-43 * r - 85 * g + 128 * b + 128) >> 8) + 128;
+                int v = ((128 * r - 107 * g - 21 * b + 128) >> 8) + 128;
 
-                uRow[x / 2] = static_cast<uint8_t>(std::min(std::max(u, 16), 240));
-                vRow[x / 2] = static_cast<uint8_t>(std::min(std::max(v, 16), 240));
+                uRow[x / 2] = static_cast<uint8_t>(std::min(std::max(u, 0), 255));
+                vRow[x / 2] = static_cast<uint8_t>(std::min(std::max(v, 0), 255));
             }
         }
     }

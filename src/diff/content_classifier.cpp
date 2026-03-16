@@ -192,9 +192,9 @@ int ContentClassifier::countDistinctColors(const Frame& frame, const Rect& regio
 
 float ContentClassifier::computeTemporalActivity(const Rect& region) const {
     if (temporalActivity_.empty() || temporalBlocksX_ == 0 || temporalBlocksY_ == 0) {
-        // No temporal data available; return moderate activity to avoid
-        // incorrectly classifying as STATIC.
-        return 0.1f;
+        // No temporal data available; return zero activity so that classify()
+        // falls through to spatial analysis or correctly reports STATIC.
+        return 0.0f;
     }
 
     // Map the pixel region to block coordinates.

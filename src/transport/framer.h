@@ -134,6 +134,8 @@ private:
         uint8_t flags = 0;
         uint8_t rectCount = 0;
         std::map<uint16_t, std::vector<uint8_t>> fragments;  // fragId -> payload
+        std::map<uint16_t, std::vector<uint8_t>> parityFragments;  // fragId -> payload (parity)
+        uint16_t totalParityCount = 0;  // total parity fragments expected
         bool complete = false;
     };
 
