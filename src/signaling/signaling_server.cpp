@@ -1,4 +1,5 @@
 #include "signaling/signaling_server.h"
+#include "core/logger.h"
 
 #include <algorithm>
 #include <cassert>
@@ -115,6 +116,8 @@ void SignalingServer::serverLoop() {
 
                 if (result == SocketResult::OK) {
                     if (msgType == MessageType::RELAY_DATA) {
+                        LOG_INFO("Server: got RELAY_DATA from client, payload=%zu bytes",
+                                 payload.size());
                         handleRelayData(client, payload);
                     } else {
                         std::string jsonStr(payload.begin(), payload.end());
@@ -345,7 +348,13 @@ void SignalingServer::handleRelayData(std::shared_ptr<TcpChannel> client,
             }
         }
     }
-    if (senderId.empty()) return;
+    if (senderId.empty()) {
+        LOG_WARN("Server: relay sender not found in users");
+        return;
+    }
+
+    LOG_INFO("Server: relaying %zu bytes from %s to %s",
+             payload.size(), senderId.c_str(), targetId.c_str());
 
     // Build forwarded payload: replace target ID with sender ID
     std::vector<uint8_t> fwd(payload.size());

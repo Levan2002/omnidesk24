@@ -1,4 +1,5 @@
 #include "signaling/signaling_client.h"
+#include "core/logger.h"
 
 #include <cassert>
 #include <chrono>
@@ -173,6 +174,9 @@ bool SignalingClient::sendRelayData(const UserID& targetId, MessageType innerTyp
     auto result = channel_.send(MessageType::RELAY_DATA,
                                 relayBuf.data(),
                                 static_cast<uint32_t>(relayBuf.size()));
+    LOG_INFO("sendRelayData: target=%s innerType=0x%04X len=%u result=%d",
+             targetId.id.c_str(), static_cast<int>(innerType), length,
+             static_cast<int>(result));
     return result == SocketResult::OK;
 }
 
@@ -226,6 +230,7 @@ void SignalingClient::receiveLoop() {
         if (result == SocketResult::OK) {
             if (msgType == MessageType::RELAY_DATA) {
                 // Binary relay: [8 bytes source ID][2 bytes inner type][payload]
+                LOG_INFO("Client: received RELAY_DATA, %zu bytes", payload.size());
                 if (payload.size() >= 10) {
                     std::string srcId(payload.begin(), payload.begin() + 8);
                     // Trim null padding
@@ -235,6 +240,10 @@ void SignalingClient::receiveLoop() {
                     std::vector<uint8_t> innerPayload(
                         payload.begin() + 10, payload.end());
 
+                    LOG_INFO("Client: relay from=%s innerType=0x%04X innerLen=%zu cb=%s",
+                             srcId.c_str(), static_cast<int>(innerType),
+                             innerPayload.size(),
+                             relayDataCb_ ? "yes" : "no");
                     std::lock_guard<std::mutex> lock(callbackMutex_);
                     if (relayDataCb_) {
                         relayDataCb_(UserID{srcId}, innerType, innerPayload);
