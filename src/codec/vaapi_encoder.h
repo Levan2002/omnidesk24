@@ -4,6 +4,7 @@
 #include "codec/encoder.h"
 #include "codec/decoder.h"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -56,7 +57,7 @@ private:
 
     EncoderConfig config_{};
     bool initialized_ = false;
-    bool keyFrameRequested_ = true;
+    std::atomic<bool> keyFrameRequested_{true};
     uint64_t frameIndex_ = 0;
     uint32_t idrPeriod_ = 300;
 };

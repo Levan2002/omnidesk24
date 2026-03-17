@@ -1,7 +1,9 @@
 #include "ui/session_view.h"
 #include "session/host_session.h"
 #include "session/viewer_session.h"
+#include "render/gl_renderer.h"
 #include <imgui.h>
+#include <cstdint>
 
 namespace omnidesk {
 
@@ -20,12 +22,18 @@ void SessionView::render(HostSession* host, ViewerSession* viewer,
                  ImGuiWindowFlags_NoBringToFrontOnFocus);
 
     if (viewer) {
-        // Remote desktop texture will be rendered here by the GL renderer
-        // For now, show placeholder
+        GlRenderer* renderer = viewer->renderer();
         ImVec2 avail = ImGui::GetContentRegionAvail();
-        ImGui::Text("Remote Desktop View (%dx%d)", static_cast<int>(avail.x), static_cast<int>(avail.y));
-
-        // TODO: Draw GL texture with ImGui::Image() once renderer provides texture ID
+        if (renderer && renderer->textureId() != 0) {
+            // Render the I420→RGB pass so the output texture is up to date
+            renderer->render(static_cast<int>(avail.x), static_cast<int>(avail.y));
+            // Display the remote desktop texture
+            ImTextureID texId = reinterpret_cast<ImTextureID>(
+                static_cast<uintptr_t>(renderer->textureId()));
+            ImGui::Image(texId, avail);
+        } else {
+            ImGui::Text("Waiting for first frame...");
+        }
     } else if (host) {
         ImGui::Text("Hosting session...");
         ImGui::Text("A viewer is connected to your desktop.");

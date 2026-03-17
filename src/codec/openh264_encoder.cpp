@@ -17,7 +17,7 @@ OpenH264Encoder::~OpenH264Encoder() {
 OpenH264Encoder::OpenH264Encoder(OpenH264Encoder&& other) noexcept
     : encoder_(other.encoder_)
     , config_(other.config_)
-    , keyFrameRequested_(other.keyFrameRequested_)
+    , keyFrameRequested_(other.keyFrameRequested_.load())
     , frameIndex_(other.frameIndex_) {
     other.encoder_ = nullptr;
 }
@@ -27,7 +27,7 @@ OpenH264Encoder& OpenH264Encoder::operator=(OpenH264Encoder&& other) noexcept {
         destroy();
         encoder_ = other.encoder_;
         config_ = other.config_;
-        keyFrameRequested_ = other.keyFrameRequested_;
+        keyFrameRequested_.store(other.keyFrameRequested_.load());
         frameIndex_ = other.frameIndex_;
         other.encoder_ = nullptr;
     }

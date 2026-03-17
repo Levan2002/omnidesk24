@@ -62,6 +62,9 @@ target_compile_definitions(omnidesk_core PUBLIC
     $<$<BOOL:${OMNIDESK_X86_64}>:OMNIDESK_X86_64>
     $<$<BOOL:${OMNIDESK_AARCH64}>:OMNIDESK_AARCH64>
 )
+if(OMNIDESK_PLATFORM_WINDOWS)
+    target_link_libraries(omnidesk_core PRIVATE shell32)
+endif()
 
 # AVX2 compilation unit (separate flags)
 if(OMNIDESK_X86_64)
@@ -231,10 +234,15 @@ target_link_libraries(omnidesk_session PUBLIC
 # UI depends on session and signaling (app.cpp orchestrates everything)
 target_link_libraries(omnidesk_ui PUBLIC omnidesk_session omnidesk_signaling omnidesk_render)
 
-# Main executable (GUI app)
-add_executable(omnidesk24 src/main.cpp)
+# Main executable (GUI app) — WIN32 suppresses the console window on Windows
+if(OMNIDESK_PLATFORM_WINDOWS)
+    add_executable(omnidesk24 WIN32 src/main.cpp)
+else()
+    add_executable(omnidesk24 src/main.cpp)
+endif()
 target_link_libraries(omnidesk24 PRIVATE omnidesk_ui omnidesk_session)
 if(OMNIDESK_PLATFORM_WINDOWS)
+    target_link_libraries(omnidesk24 PRIVATE shell32)
     # Statically link MinGW runtimes so the exe has no external DLL dependencies
     target_link_options(omnidesk24 PRIVATE
         -static-libgcc

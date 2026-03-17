@@ -3,8 +3,10 @@
 #include "core/types.h"
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace omnidesk {
 
@@ -35,11 +37,16 @@ public:
 
     ViewerStats getStats() const;
 
-    // Called by transport when video data arrives
+    // Called by transport when video data arrives (any thread).
+    // Decodes the packet and queues the frame for GL upload.
     void onVideoPacket(const EncodedPacket& packet);
 
     // Called by transport when cursor update arrives
     void onCursorUpdate(const CursorInfo& cursor);
+
+    // Must be called on the GL/main thread each frame to upload
+    // decoded frames to GL textures.
+    void processOnGlThread();
 
     // Get renderer for ImGui integration
     GlRenderer* renderer() { return renderer_.get(); }
@@ -56,6 +63,12 @@ private:
     std::thread decodeThread_;
     std::atomic<bool> running_{false};
 
+    // Thread-safe frame queue: decoded frames waiting for GL upload
+    std::mutex frameMutex_;
+    Frame pendingFrame_;
+    std::vector<Rect> pendingDirtyRects_;
+    bool hasNewFrame_ = false;
+
     // Stats
     std::atomic<float> currentFps_{0};
     std::atomic<float> currentBitrate_{0};
@@ -64,6 +77,10 @@ private:
     std::atomic<float> decodeTimeMs_{0};
     int frameWidth_ = 0;
     int frameHeight_ = 0;
+
+    // FPS tracking
+    uint64_t framesDecoded_ = 0;
+    std::chrono::steady_clock::time_point fpsStart_;
 };
 
 } // namespace omnidesk

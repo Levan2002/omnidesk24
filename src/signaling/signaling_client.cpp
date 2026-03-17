@@ -13,15 +13,34 @@ SignalingClient::~SignalingClient() {
     disconnect();
 }
 
-bool SignalingClient::connect(const std::string& host, uint16_t port) {
+bool SignalingClient::connect(const std::string& host, uint16_t port,
+                              const std::vector<uint16_t>& fallbackPorts) {
     if (connected_) disconnect();
 
-    serverHost_ = host;
-    serverPort_ = port;
+    serverHost_    = host;
+    serverPort_    = port;
+    fallbackPorts_ = fallbackPorts;
+    connectedPort_ = 0;
 
-    if (!channel_.connect(host, port)) {
-        return false;
+    // Build ordered list: primary port first, then fallbacks (skip duplicates).
+    std::vector<uint16_t> portsToTry;
+    portsToTry.push_back(port);
+    for (uint16_t p : fallbackPorts) {
+        if (p != port) portsToTry.push_back(p);
     }
+
+    // Short per-port timeout so the UI doesn't freeze for too long.
+    constexpr int kPortTimeoutMs = 2500;
+
+    bool ok = false;
+    for (uint16_t p : portsToTry) {
+        if (channel_.connect(host, p, kPortTimeoutMs)) {
+            connectedPort_ = p;
+            ok = true;
+            break;
+        }
+    }
+    if (!ok) return false;
 
     connected_ = true;
     running_ = true;
@@ -130,10 +149,36 @@ void SignalingClient::onRegistered(RegisteredCallback cb) {
     registeredCb_ = std::move(cb);
 }
 
+void SignalingClient::onRelayData(RelayDataCallback cb) {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    relayDataCb_ = std::move(cb);
+}
+
+bool SignalingClient::sendRelayData(const UserID& targetId, MessageType innerType,
+                                     const void* data, uint32_t length) {
+    if (!connected_) return false;
+
+    // Wire format: [8 bytes target ID][2 bytes inner type][N bytes payload]
+    std::vector<uint8_t> relayBuf(8 + 2 + length);
+    // Pad/truncate target ID to exactly 8 bytes
+    std::memset(relayBuf.data(), 0, 8);
+    std::memcpy(relayBuf.data(), targetId.id.data(),
+                std::min<size_t>(targetId.id.size(), 8));
+    writeU16(relayBuf.data() + 8, static_cast<uint16_t>(innerType));
+    if (length > 0 && data) {
+        std::memcpy(relayBuf.data() + 10, data, length);
+    }
+
+    std::lock_guard<std::mutex> lock(sendMutex_);
+    auto result = channel_.send(MessageType::RELAY_DATA,
+                                relayBuf.data(),
+                                static_cast<uint32_t>(relayBuf.size()));
+    return result == SocketResult::OK;
+}
+
 void SignalingClient::poll() {
-    // Callbacks are dispatched directly from the receive thread for now.
-    // In a production implementation, we would queue events here
-    // and dispatch them on the calling (UI) thread.
+    // Callbacks are dispatched directly from the receive thread.
+    // Callers that need thread-safe dispatch should queue actions themselves.
 }
 
 void SignalingClient::receiveLoop() {
@@ -179,8 +224,26 @@ void SignalingClient::receiveLoop() {
         auto result = channel_.recv(msgType, payload);
 
         if (result == SocketResult::OK) {
-            std::string json(payload.begin(), payload.end());
-            handleMessage(json);
+            if (msgType == MessageType::RELAY_DATA) {
+                // Binary relay: [8 bytes source ID][2 bytes inner type][payload]
+                if (payload.size() >= 10) {
+                    std::string srcId(payload.begin(), payload.begin() + 8);
+                    // Trim null padding
+                    while (!srcId.empty() && srcId.back() == '\0') srcId.pop_back();
+                    MessageType innerType = static_cast<MessageType>(
+                        readU16(payload.data() + 8));
+                    std::vector<uint8_t> innerPayload(
+                        payload.begin() + 10, payload.end());
+
+                    std::lock_guard<std::mutex> lock(callbackMutex_);
+                    if (relayDataCb_) {
+                        relayDataCb_(UserID{srcId}, innerType, innerPayload);
+                    }
+                }
+            } else {
+                std::string json(payload.begin(), payload.end());
+                handleMessage(json);
+            }
         } else if (result == SocketResult::DISCONNECTED) {
             connected_ = false;
             registered_ = false;
@@ -265,6 +328,16 @@ bool SignalingClient::sendJson(const std::string& json) {
 }
 
 bool SignalingClient::tryReconnect() {
+    // Build the port list: try the last-known working port first.
+    std::vector<uint16_t> portsToTry;
+    if (connectedPort_ != 0) portsToTry.push_back(connectedPort_);
+    if (serverPort_ != connectedPort_) portsToTry.push_back(serverPort_);
+    for (uint16_t p : fallbackPorts_) {
+        bool dup = false;
+        for (uint16_t x : portsToTry) if (x == p) { dup = true; break; }
+        if (!dup) portsToTry.push_back(p);
+    }
+
     for (int attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS && running_; ++attempt) {
         // Wait before attempting reconnect
         for (int i = 0; i < RECONNECT_INTERVAL_SEC * 10 && running_; ++i) {
@@ -274,7 +347,17 @@ bool SignalingClient::tryReconnect() {
 
         channel_.close();
 
-        if (channel_.connect(serverHost_, serverPort_)) {
+        constexpr int kPortTimeoutMs = 2500;
+        bool ok = false;
+        for (uint16_t p : portsToTry) {
+            if (channel_.connect(serverHost_, p, kPortTimeoutMs)) {
+                connectedPort_ = p;
+                ok = true;
+                break;
+            }
+        }
+
+        if (ok) {
             connected_ = true;
 
             // Re-register if we were registered before

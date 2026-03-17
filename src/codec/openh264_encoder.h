@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "codec/encoder.h"
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -38,7 +39,7 @@ private:
 
     ISVCEncoder* encoder_ = nullptr;
     EncoderConfig config_{};
-    bool keyFrameRequested_ = false;
+    std::atomic<bool> keyFrameRequested_{false};
     uint64_t frameIndex_ = 0;
 };
 

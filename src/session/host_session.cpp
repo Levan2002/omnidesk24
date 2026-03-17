@@ -63,6 +63,11 @@ bool HostSession::start(const EncoderConfig& encConfig, const CaptureConfig& cap
     return true;
 }
 
+void HostSession::setSendCallback(SendCallback cb) {
+    std::lock_guard<std::mutex> lock(sendCbMutex_);
+    sendCallback_ = std::move(cb);
+}
+
 void HostSession::stop() {
     running_ = false;
     if (captureThread_.joinable()) captureThread_.join();
@@ -156,7 +161,11 @@ void HostSession::encodeLoop() {
         if (encoder_->encode(i420Frame, regions, packet)) {
             packet.dirtyRects = dirtyRects;
 
-            // TODO: send packet via transport layer
+            // Send via transport layer
+            {
+                std::lock_guard<std::mutex> lock(sendCbMutex_);
+                if (sendCallback_) sendCallback_(packet);
+            }
 
             auto encEnd = std::chrono::steady_clock::now();
             float encMs = std::chrono::duration<float, std::milli>(encEnd - encStart).count();
@@ -192,6 +201,10 @@ HostStats HostSession::getStats() const {
     stats.height = frameHeight_;
     if (encoder_) stats.encoderName = encoder_->getInfo().name;
     return stats;
+}
+
+void HostSession::requestKeyFrame() {
+    if (encoder_) encoder_->requestKeyFrame();
 }
 
 void HostSession::onQualityReport(const QualityReport& report) {

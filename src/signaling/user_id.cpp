@@ -20,8 +20,10 @@
 
 namespace omnidesk {
 
-static constexpr const char* ALPHANUMERIC = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-static constexpr size_t ALPHANUMERIC_LEN = 62;
+// Uppercase letters + digits only, with visually ambiguous chars removed
+// (0/O, 1/I/L) so IDs are easy to read and type without errors.
+static constexpr const char* ALPHANUMERIC = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+static constexpr size_t ALPHANUMERIC_LEN = 31;
 static constexpr size_t USER_ID_LENGTH = 8;
 
 UserIdGenerator::UserIdGenerator() = default;
@@ -124,9 +126,11 @@ UserID UserIdGenerator::load() {
 
     if (line.size() != USER_ID_LENGTH) return UserID{};
 
-    // Validate all characters are alphanumeric
-    for (char c : line) {
+    // Validate all characters are alphanumeric and normalize to uppercase
+    // (old builds generated mixed-case IDs that are still saved on disk).
+    for (char& c : line) {
         if (!std::isalnum(static_cast<unsigned char>(c))) return UserID{};
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     }
 
     return UserID{line};

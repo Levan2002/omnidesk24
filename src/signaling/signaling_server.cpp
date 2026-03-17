@@ -114,8 +114,12 @@ void SignalingServer::serverLoop() {
                 auto result = client->recv(msgType, payload);
 
                 if (result == SocketResult::OK) {
-                    std::string jsonStr(payload.begin(), payload.end());
-                    handleClientMessage(client, jsonStr);
+                    if (msgType == MessageType::RELAY_DATA) {
+                        handleRelayData(client, payload);
+                    } else {
+                        std::string jsonStr(payload.begin(), payload.end());
+                        handleClientMessage(client, jsonStr);
+                    }
                 } else if (result == SocketResult::DISCONNECTED) {
                     {
                         std::lock_guard<std::mutex> ulock(usersMutex_);
@@ -320,6 +324,44 @@ void SignalingServer::handleHeartbeat(std::shared_ptr<TcpChannel> client,
         {"type", SignalingMsg::HEARTBEAT_ACK}
     });
     sendJson(*client, resp);
+}
+
+void SignalingServer::handleRelayData(std::shared_ptr<TcpChannel> client,
+                                       const std::vector<uint8_t>& payload) {
+    // Wire format: [8 bytes target ID][2 bytes inner type][N bytes data]
+    if (payload.size() < 10) return;
+
+    std::string targetId(payload.begin(), payload.begin() + 8);
+    while (!targetId.empty() && targetId.back() == '\0') targetId.pop_back();
+
+    // Find the sender's user ID
+    std::string senderId;
+    {
+        std::lock_guard<std::mutex> lock(usersMutex_);
+        for (const auto& [id, user] : users_) {
+            if (user.channel.get() == client.get()) {
+                senderId = id;
+                break;
+            }
+        }
+    }
+    if (senderId.empty()) return;
+
+    // Build forwarded payload: replace target ID with sender ID
+    std::vector<uint8_t> fwd(payload.size());
+    std::memset(fwd.data(), 0, 8);
+    std::memcpy(fwd.data(), senderId.data(),
+                std::min<size_t>(senderId.size(), 8));
+    std::memcpy(fwd.data() + 8, payload.data() + 8, payload.size() - 8);
+
+    // Forward to target
+    std::lock_guard<std::mutex> lock(usersMutex_);
+    auto it = users_.find(targetId);
+    if (it != users_.end() && it->second.channel && it->second.channel->isOpen()) {
+        it->second.channel->send(MessageType::RELAY_DATA,
+                                  fwd.data(),
+                                  static_cast<uint32_t>(fwd.size()));
+    }
 }
 
 void SignalingServer::sendJson(TcpChannel& client, const std::string& json) {

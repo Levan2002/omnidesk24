@@ -94,6 +94,7 @@ private:
     void handleConnectAccept(std::shared_ptr<TcpChannel> client, const std::string& json);
     void handleConnectReject(std::shared_ptr<TcpChannel> client, const std::string& json);
     void handleHeartbeat(std::shared_ptr<TcpChannel> client, const std::string& json);
+    void handleRelayData(std::shared_ptr<TcpChannel> client, const std::vector<uint8_t>& payload);
 
     // Send a JSON message to a client via ControlHeader-prefixed TCP.
     void sendJson(TcpChannel& client, const std::string& json);

@@ -31,6 +31,7 @@ add_executable(omnidesk_integration_tests
     integration/test_capture_encode_pipeline.cpp
     integration/test_signaling_flow.cpp
     integration/test_transport_loopback.cpp
+    integration/test_data_channel_flow.cpp
 )
 
 target_link_libraries(omnidesk_integration_tests PRIVATE

@@ -3,7 +3,9 @@
 #include "core/types.h"
 #include "core/ring_buffer.h"
 #include <atomic>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -31,10 +33,17 @@ public:
     HostSession();
     ~HostSession();
 
+    using SendCallback = std::function<void(const EncodedPacket&)>;
+
     bool start(const EncoderConfig& encConfig, const CaptureConfig& capConfig);
     void stop();
 
+    void setSendCallback(SendCallback cb);
+
     HostStats getStats() const;
+
+    // Force the encoder to produce a keyframe on the next encode.
+    void requestKeyFrame();
 
     // Called by transport when viewer sends quality report
     void onQualityReport(const QualityReport& report);
@@ -67,6 +76,9 @@ private:
 
     EncoderConfig encoderConfig_;
     uint64_t frameCounter_ = 0;
+
+    SendCallback sendCallback_;
+    std::mutex sendCbMutex_;
 };
 
 } // namespace omnidesk

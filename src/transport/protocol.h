@@ -63,6 +63,8 @@ enum class MessageType : uint16_t {
     CONNECT_REJECT   = 0x000B,
     HEARTBEAT        = 0x000C,
     BYE              = 0x000D,
+    VIDEO_DATA       = 0x000E,
+    RELAY_DATA       = 0x000F,  // Data relayed through signaling server
 };
 
 // Control channel header (12 bytes), prefixed to every TCP message

@@ -63,9 +63,15 @@ public:
     using UserOfflineCallback = std::function<void(const UserID& targetId)>;
     using DisconnectedCallback = std::function<void()>;
     using RegisteredCallback = std::function<void(bool success)>;
+    using RelayDataCallback = std::function<void(const UserID& fromId,
+                                                  MessageType innerType,
+                                                  const std::vector<uint8_t>& payload)>;
 
     // Connect to the signaling server.
-    bool connect(const std::string& host, uint16_t port);
+    // Tries each port in fallbackPorts in order until one succeeds.
+    // If fallbackPorts is empty, only port is tried.
+    bool connect(const std::string& host, uint16_t port,
+                 const std::vector<uint16_t>& fallbackPorts = {});
 
     // Disconnect from the server.
     void disconnect();
@@ -83,8 +89,20 @@ public:
     // Reject an incoming connection request.
     bool rejectConnection(const UserID& fromId, const std::string& reason = "");
 
+    // Send data to a peer through the signaling server relay.
+    // Used when direct P2P connection is not possible.
+    bool sendRelayData(const UserID& targetId, MessageType innerType,
+                       const void* data, uint32_t length);
+
     // Check if connected to the server.
     bool isConnected() const;
+
+    // Returns the port that was actually used to connect (0 if not connected).
+    uint16_t connectedPort() const { return connectedPort_; }
+
+    // Returns the local IP address used for the signaling TCP connection.
+    // More reliable than UDP-based detection (avoids Docker/VPN adapters).
+    std::string localAddress() const { return channel_.localAddress(); }
 
     // Check if registered.
     bool isRegistered() const { return registered_; }
@@ -99,6 +117,7 @@ public:
     void onUserOffline(UserOfflineCallback cb);
     void onDisconnected(DisconnectedCallback cb);
     void onRegistered(RegisteredCallback cb);
+    void onRelayData(RelayDataCallback cb);
 
     // Poll for pending events (processes callbacks on the calling thread).
     // Call from main/UI thread each frame to dispatch queued callbacks safely.
@@ -127,7 +146,9 @@ private:
 
     TcpChannel channel_;
     std::string serverHost_;
-    uint16_t serverPort_ = 0;
+    uint16_t serverPort_ = 0;        // primary port from config
+    uint16_t connectedPort_ = 0;     // actual port used (set on successful connect)
+    std::vector<uint16_t> fallbackPorts_;  // ports to try if primary fails
     UserID userId_;
     PeerAddress localAddr_;
     std::atomic<bool> connected_{false};
@@ -145,6 +166,7 @@ private:
     UserOfflineCallback userOfflineCb_;
     DisconnectedCallback disconnectedCb_;
     RegisteredCallback registeredCb_;
+    RelayDataCallback relayDataCb_;
     std::mutex callbackMutex_;
 
     // Heartbeat tracking
