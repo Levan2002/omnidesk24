@@ -36,7 +36,8 @@ Replace OmniDesk24's custom transport layer (TCP/UDP channels, FEC, congestion c
 | **Session** (`src/session/`) | HostSession + ViewerSession | Heavily modified — orchestrate `webrtc::PeerConnection` instead of raw channels |
 | **Render** (`src/render/`) | OpenGL I420 to RGB | Kept as-is |
 | **UI** (`src/ui/`) | ImGui + GLFW | Modified — remove TcpChannel/relay references, add TURN config |
-| **Core** (`src/core/`) | Types, logging, threading | Kept — types.h trimmed of transport-specific structs |
+| **Input** (`src/input/`) | Input handler, cursor predictor | Kept as-is |
+| **Core** (`src/core/`) | Types, logging, threading | Kept — types.h absorbs `InputEvent`, `InputType`, `PeerAddress` from transport/protocol.h before transport deletion; trimmed of transport-specific structs (`ControlHeader`, `VideoHeader`, `MessageType`) |
 
 ### Data flow (host)
 
@@ -74,18 +75,17 @@ InputEvent / Clipboard / CursorUpdate -> serialize -> DataChannel (reliable/orde
 
 ### `capture_track_source.h/cpp` — Video source
 
-- Implements `rtc::VideoSourceInterface`
-- Capture thread pushes raw `Frame` into it
-- Converts `Frame` (BGRA) to `webrtc::VideoFrame` (I420 or NV12)
-- WebRTC pulls frames from here into the encoder pipeline
-- Respects WebRTC's `AdaptVideoFormat` hints for resolution/FPS adaptation
+- Extends `rtc::AdaptedVideoTrackSource` (provides adaptation, timestamping, and thread-safe frame delivery)
+- Capture thread calls `OnFrame(webrtc::VideoFrame)` to push frames
+- Converts `Frame` (BGRA) to `webrtc::VideoFrame` (I420 or NV12) before calling `OnFrame()`
+- Respects WebRTC's `AdaptVideoFormat` hints for resolution/FPS adaptation via inherited `AdaptFrame()`
 
 ### `video_encoder_wrapper.h/cpp` — Hardware encoder bridge
 
 - Implements `webrtc::VideoEncoder`
 - Wraps existing NVENC encoder (later VAAPI/MF)
 - `InitEncode()` creates NVENC encoder with WebRTC's codec settings
-- `Encode()` encodes `webrtc::VideoFrame`, returns `webrtc::EncodedImage` with H.264 NAL data
+- `Encode()` encodes `webrtc::VideoFrame`, delivers result asynchronously via `EncodedImageCallback::OnEncodedImage()` (not a return value)
 - `SetRates()` forwards bitrate/FPS targets from WebRTC's bandwidth estimator to NVENC
 - Keyframe requests handled via `Encode()` frame types
 - Also implements `webrtc::VideoEncoderFactory` to register hardware encoders + fallback to built-in
@@ -151,13 +151,13 @@ InputEvent / Clipboard / CursorUpdate -> serialize -> DataChannel (reliable/orde
 
 ### HostSession
 
-- **Keeps:** capture thread, dirty region detection, content classifier, quality tuner
-- **Loses:** encode thread, `IEncoder`, `RingBuffer`, `SendCallback`, `EncodedPacket` output
+- **Keeps:** capture thread, dirty region detection, content classifier
+- **Loses:** encode thread, `IEncoder`, `RingBuffer`, `SendCallback`, `EncodedPacket` output, `QualityTuner`, `AdaptiveBitrateController`
 - **New role:** Captures frames and pushes them into `CaptureTrackSource`. WebRTC owns the encode pipeline.
 - `requestKeyFrame()` signals through the encoder wrapper
 - `onQualityReport()` removed — WebRTC RTCP receiver reports handle this automatically
 - `AdaptiveBitrateController` removed — WebRTC `BitrateAllocator` + `SetRates()` replaces it
-- Dirty rect / content classification info passed as frame metadata or ROI QP map if NVENC supports it
+- `QualityTuner` removed — `webrtc::VideoEncoder::Encode()` does not accept per-region QP maps. Content classification info is retained for potential future use (e.g., passing hints via `webrtc::VideoFrame::set_video_frame_metadata()`) but is not wired into the encoder wrapper in the initial implementation
 
 ### ViewerSession
 
@@ -174,6 +174,23 @@ InputEvent / Clipboard / CursorUpdate -> serialize -> DataChannel (reliable/orde
 - **Add to AppConfig:** `turnServer`, `turnUser`, `turnPassword`
 - After `connect_accept`, create `WebRtcSession` and start SDP exchange
 - DataChannel messages dispatched to viewer's `onCursorUpdate()` / host's input handler
+
+## libwebrtc Threading Model
+
+libwebrtc creates and enforces three internal threads with strict affinity:
+
+- **Signaling thread** — all `PeerConnection` API calls (create offer, set description, add track) must happen here
+- **Worker thread** — media processing, encoder/decoder calls
+- **Network thread** — ICE, DTLS, packet send/receive
+
+**Integration plan:**
+
+- `PeerConnectionFactory::Create()` is called once at app startup, on the main/UI thread. Pass `nullptr` for all three thread params to let libwebrtc create and manage its own threads.
+- `WebRtcSession` posts all `PeerConnection` API calls to libwebrtc's signaling thread via `rtc::Thread::Invoke()` or `PostTask()`. The app's main thread never calls `PeerConnection` methods directly.
+- `CaptureTrackSource::OnFrame()` is called from the app's capture thread. This is safe — `AdaptedVideoTrackSource::OnFrame()` is thread-safe and internally dispatches to the worker thread.
+- `VideoEncoderWrapper::Encode()` is called by libwebrtc on its worker thread. The NVENC encoder must be initialized and used from that thread (NVENC is not thread-safe — all calls from the same thread are fine).
+- `VideoSink::OnFrame()` is called by libwebrtc on its worker/decode thread. It queues the frame and the GL upload happens on the main thread via `processOnGlThread()` (existing pattern, no change).
+- DataChannel `OnMessage()` callbacks arrive on the network thread. Messages are queued and dispatched on the main thread via the existing `queueAction()` pattern in `App`.
 
 ## Build System
 
@@ -194,11 +211,14 @@ cmake/
 | `omnidesk_codec` | Remove OpenH264 sources. Add `video_encoder_wrapper`, `video_decoder_wrapper`. Link `libwebrtc`. |
 | `omnidesk_transport` | Delete entirely |
 | `omnidesk_webrtc` | New — `webrtc_session`, `capture_track_source`, `video_sink`. Links `libwebrtc`, `omnidesk_codec`, `omnidesk_signaling`. |
-| `omnidesk_signaling` | Remove dependency on `omnidesk_transport`. Fold minimal TCP into signaling directly. |
+| `omnidesk_signaling` | Remove dependency on `omnidesk_transport`. Move `TcpChannel` (tcp_channel.h/cpp) and serialization helpers (`writeU16`/`readU16`/etc.) into `src/signaling/` as private implementation files. The signaling layer is the only remaining consumer of raw TCP sockets. |
 | `omnidesk_session` | Depends on `omnidesk_webrtc` instead of `omnidesk_transport` + `omnidesk_codec` |
 | `omnidesk24` | Links `omnidesk_session`, `omnidesk_webrtc`, `omnidesk_ui` |
+| `omnidesk24-server` | Links `omnidesk_signaling` (which now contains its own TCP impl). Remove dependency on `omnidesk_transport`. Also fix `database.h` which includes `transport/protocol.h` — relocate needed types. |
 
 libwebrtc is statically linked — single-exe property preserved. BoringSSL bundled inside libwebrtc. No new DLL dependencies.
+
+**BoringSSL conflict note:** libwebrtc bundles BoringSSL. If the signaling TCP layer or any future dependency links OpenSSL, there will be symbol conflicts. The signaling layer must not introduce an OpenSSL dependency — use plain TCP (no TLS on the signaling socket) or rely on libwebrtc's BoringSSL if TLS is needed later.
 
 ### Files deleted from build
 
@@ -213,7 +233,7 @@ libwebrtc is statically linked — single-exe property preserved. BoringSSL bund
 
 ### Entire directories removed
 
-- `src/transport/` — tcp_channel, udp_channel, fec, congestion, hole_punch, protocol.h (~1800 LOC)
+- `src/transport/` — udp_channel, fec, congestion, hole_punch, protocol.h (~2500 LOC). Note: `tcp_channel.h/cpp` is moved to `src/signaling/` before deletion (signaling still needs raw TCP).
 
 ### Individual files removed
 
@@ -221,7 +241,17 @@ libwebrtc is statically linked — single-exe property preserved. BoringSSL bund
 - `src/codec/openh264_encoder.h/cpp`
 - `src/codec/openh264_decoder.h/cpp`
 - `src/codec/codec_factory.h/cpp`
+- `src/codec/rate_control.h/cpp` (AdaptiveBitrateController — replaced by WebRTC bandwidth estimation)
+- `src/codec/quality_tuner.h/cpp` (QualityTuner — webrtc::VideoEncoder API does not support per-region QP)
 - `cmake/FetchOpenH264.cmake`
+
+### Relocated before transport deletion
+
+- `InputEvent`, `InputType` structs + serialization — moved from `transport/protocol.h` to `core/types.h`
+- `PeerAddress` struct — moved from `transport/protocol.h` to `core/types.h`
+- `writeU16`, `readU16`, `writeU32`, `readU32` helpers — moved to `src/signaling/` (for ControlHeader framing) and `core/types.h` (for DataChannel message serialization)
+- `ControlHeader` — moved to `src/signaling/` (still used for signaling wire format)
+- `tcp_channel.h/cpp` — moved to `src/signaling/` (only remaining TCP consumer)
 
 ### Removed from `core/types.h`
 
@@ -231,16 +261,18 @@ libwebrtc is statically linked — single-exe property preserved. BoringSSL bund
 ### Kept in `core/types.h`
 
 - `Frame`, `PixelFormat`, `Rect`, `RegionInfo`, `ContentType` — capture layer uses these
-- `CursorInfo`, `InputEvent`, `InputType` — serialized over DataChannel
+- `CursorInfo` — serialized over DataChannel
+- `InputEvent`, `InputType` — relocated from `transport/protocol.h`, serialized over DataChannel
+- `PeerAddress` — relocated from `transport/protocol.h`, used by signaling
 - `EncoderConfig`, `CaptureConfig`, `MonitorInfo` — configuration
-- `UserID`, `PeerAddress`, `EncoderInfo` — signaling/UI
+- `UserID`, `EncoderInfo` — signaling/UI
 
 ### Removed from `transport/protocol.h` before deleting
 
 - `MessageType` enum — replaced by DataChannel message type byte
-- `ControlHeader`, `VideoHeader` — WebRTC handles framing
-- Serialization helpers (`writeU16`, etc.) — minimal copy kept in `core/` for DataChannel serialization
+- `VideoHeader` — WebRTC handles framing
+- (Note: `ControlHeader`, `TcpChannel`, and serialization helpers are relocated, not deleted — see "Relocated" section above)
 
 ### Total removed
 
-~2500 LOC across transport + OpenH264 codec layer.
+~3200 LOC across transport + OpenH264 codec + rate control + quality tuner.
