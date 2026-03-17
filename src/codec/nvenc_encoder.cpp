@@ -86,35 +86,10 @@ bool NvencEncoder::createBuffers() {
 bool NvencEncoder::init(const EncoderConfig& cfg) {
     config_ = cfg;
 
-    if (!loadLibrary()) {
-        LOG_ERROR("NVENC: failed to load nvidia-encode library");
-        return false;
-    }
-
-    if (!openSession()) {
-        LOG_ERROR("NVENC: failed to open encode session");
-        destroy();
-        return false;
-    }
-
-    if (!initEncoder()) {
-        LOG_ERROR("NVENC: failed to initialize encoder");
-        destroy();
-        return false;
-    }
-
-    if (!createBuffers()) {
-        LOG_ERROR("NVENC: failed to create buffers");
-        destroy();
-        return false;
-    }
-
-    initialized_ = true;
-    frameIndex_ = 0;
-    keyFrameRequested_ = true;
-    LOG_INFO("NVENC encoder initialized: %dx%d @ %d kbps",
-             cfg.width, cfg.height, cfg.targetBitrateBps / 1000);
-    return true;
+    // NVENC is a stub — the SDK integration is not yet implemented.
+    // Return false so the codec factory falls through to OpenH264.
+    LOG_INFO("NVENC: stub encoder, falling back to software");
+    return false;
 }
 
 bool NvencEncoder::encode(const Frame& frame,
