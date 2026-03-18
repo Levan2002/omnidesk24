@@ -36,6 +36,11 @@ public:
         uint32_t upscaleBitrateBps   = 2000000;  // >2 Mbps → allow scale up
         uint32_t minBitrateBps       = 300000;    // Absolute minimum at 720p
 
+        // FPS range
+        float maxFps = 60.0f;
+        float minFps = 15.0f;
+        float idleFps = 30.0f;
+
         // Hysteresis: number of consecutive frames before changing level
         int downscaleFrameCount = 10;  // ~333ms at 30fps
         int upscaleFrameCount   = 30;  // ~1s at 30fps (slower upscale)
@@ -49,10 +54,8 @@ public:
     ~AdaptiveQuality() = default;
 
     // Call once per encoded frame with current performance metrics.
-    // encodeTimeMs:  how long the encoder took for this frame
-    // frameBudgetMs: target time per frame (e.g. 33.3ms at 30fps)
-    // currentBitrateBps: current bitrate from rate controller
-    void update(float encodeTimeMs, float frameBudgetMs, uint32_t currentBitrateBps);
+    void update(float encodeTimeMs, float frameBudgetMs,
+                uint32_t currentBitrateBps, float motionRatio);
 
     // Current target resolution (always even, never below minimum)
     int targetWidth() const { return targetWidth_; }
@@ -60,6 +63,9 @@ public:
 
     // Current resolution level (0 = native, 1 = medium, 2 = low/720p)
     int currentLevel() const { return currentLevel_; }
+
+    // Adaptive target FPS — use this to drive capture/encode rate
+    float targetFps() const { return targetFps_; }
 
     // Target bitrate adjusted for current resolution level
     uint32_t targetBitrate() const { return targetBitrate_; }
@@ -81,6 +87,7 @@ private:
     int currentLevel_ = 0;  // 0=native, 1=medium, 2=low
     int targetWidth_  = 1920;
     int targetHeight_ = 1080;
+    float targetFps_  = 30.0f;
     uint32_t targetBitrate_ = 2000000;
     bool resolutionChanged_ = false;
 

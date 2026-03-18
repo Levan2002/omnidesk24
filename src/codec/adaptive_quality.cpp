@@ -37,13 +37,38 @@ void AdaptiveQuality::setConfig(const Config& config) {
 }
 
 void AdaptiveQuality::update(float encodeTimeMs, float frameBudgetMs,
-                              uint32_t currentBitrateBps) {
+                              uint32_t currentBitrateBps, float motionRatio) {
     resolutionChanged_ = false;
+
+    // ---- Adaptive FPS ----
+    // High motion (>30%) → ramp up to maxFps for smooth playback
+    // Low motion → drop to idleFps to save resources
+    // Under CPU/bandwidth pressure → drop further to minFps
+    float desiredFps = config_.idleFps;
+    if (motionRatio > 0.3f) {
+        // Interpolate: 30% motion → idleFps, 80%+ motion → maxFps
+        float t = std::min((motionRatio - 0.3f) / 0.5f, 1.0f);
+        desiredFps = config_.idleFps + t * (config_.maxFps - config_.idleFps);
+    }
 
     // Determine if we should scale down or up based on encode time and bandwidth.
     float encodeLoad = (frameBudgetMs > 0.0f)
                        ? (encodeTimeMs / frameBudgetMs)
                        : 0.0f;
+
+    // Under CPU pressure → reduce FPS first (less jarring than resolution drop)
+    if (encodeLoad > config_.downscaleThreshold) {
+        desiredFps = std::max(desiredFps * 0.7f, config_.minFps);
+    }
+    // Under bandwidth pressure → also reduce FPS
+    if (currentBitrateBps > 0 && currentBitrateBps < config_.downscaleBitrateBps) {
+        desiredFps = std::max(desiredFps * 0.6f, config_.minFps);
+    }
+
+    // Smooth FPS transitions (exponential moving average)
+    targetFps_ = targetFps_ * 0.8f + desiredFps * 0.2f;
+    targetFps_ = std::max(targetFps_, config_.minFps);
+    targetFps_ = std::min(targetFps_, config_.maxFps);
 
     bool wantDown = false;
     bool wantUp   = false;

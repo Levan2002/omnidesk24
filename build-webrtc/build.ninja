@@ -1374,6 +1374,16 @@ build CMakeFiles/omnidesk_codec.dir/src/codec/quality_tuner.cpp.obj: CXX_COMPILE
   OBJECT_FILE_DIR = CMakeFiles\omnidesk_codec.dir\src\codec
   TARGET_SUPPORT_DIR = CMakeFiles\omnidesk_codec.dir
 
+build CMakeFiles/omnidesk_codec.dir/src/codec/adaptive_quality.cpp.obj: CXX_COMPILER__omnidesk_codec_unscanned_Release C$:/Users/levan/OneDrive/Desktop/omnidesk24/src/codec/adaptive_quality.cpp || cmake_object_order_depends_target_omnidesk_codec
+  CONFIG = Release
+  DEFINES = -DOMNIDESK_HAS_NVENC -DOMNIDESK_PLATFORM_WINDOWS -DOMNIDESK_X86_64 -DX86_ASM
+  DEP_FILE = CMakeFiles\omnidesk_codec.dir\src\codec\adaptive_quality.cpp.obj.d
+  FLAGS = -O3 -DNDEBUG -std=gnu++17 -msse2 -Wall -Wextra -Wpedantic -O3
+  INCLUDES = -IC:/Users/levan/OneDrive/Desktop/omnidesk24/src -IC:/Users/levan/OneDrive/Desktop/omnidesk24/build-webrtc/_deps/openh264_src-src/codec/api -IC:/Users/levan/OneDrive/Desktop/omnidesk24/build-webrtc/_deps/openh264_src-src/codec/api/wels -IC:/Users/levan/OneDrive/Desktop/omnidesk24/build-webrtc/_deps/openh264_src-src/codec/common/inc -IC:/Users/levan/OneDrive/Desktop/omnidesk24/build-webrtc/_deps/openh264_src-src/codec/processing/interface
+  OBJECT_DIR = CMakeFiles\omnidesk_codec.dir
+  OBJECT_FILE_DIR = CMakeFiles\omnidesk_codec.dir\src\codec
+  TARGET_SUPPORT_DIR = CMakeFiles\omnidesk_codec.dir
+
 build CMakeFiles/omnidesk_codec.dir/src/codec/nvenc_encoder.cpp.obj: CXX_COMPILER__omnidesk_codec_unscanned_Release C$:/Users/levan/OneDrive/Desktop/omnidesk24/src/codec/nvenc_encoder.cpp || cmake_object_order_depends_target_omnidesk_codec
   CONFIG = Release
   DEFINES = -DOMNIDESK_HAS_NVENC -DOMNIDESK_PLATFORM_WINDOWS -DOMNIDESK_X86_64 -DX86_ASM
@@ -1402,7 +1412,7 @@ build CMakeFiles/omnidesk_codec.dir/src/codec/mf_encoder.cpp.obj: CXX_COMPILER__
 #############################################
 # Link the static library libomnidesk_codec.a
 
-build libomnidesk_codec.a: CXX_STATIC_LIBRARY_LINKER__omnidesk_codec_Release CMakeFiles/omnidesk_codec.dir/src/codec/openh264_loader.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/openh264_encoder.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/openh264_decoder.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/codec_factory.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/rate_control.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/quality_tuner.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/nvenc_encoder.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/mf_encoder.cpp.obj || libomnidesk_avx2.a libomnidesk_core.a libopenh264_common.a libopenh264_decoder.a libopenh264_encoder.a libopenh264_processing.a
+build libomnidesk_codec.a: CXX_STATIC_LIBRARY_LINKER__omnidesk_codec_Release CMakeFiles/omnidesk_codec.dir/src/codec/openh264_loader.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/openh264_encoder.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/openh264_decoder.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/codec_factory.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/rate_control.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/quality_tuner.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/adaptive_quality.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/nvenc_encoder.cpp.obj CMakeFiles/omnidesk_codec.dir/src/codec/mf_encoder.cpp.obj || libomnidesk_avx2.a libomnidesk_core.a libopenh264_common.a libopenh264_decoder.a libopenh264_encoder.a libopenh264_processing.a
   CONFIG = Release
   LANGUAGE_COMPILE_FLAGS = -O3 -DNDEBUG
   OBJECT_DIR = CMakeFiles\omnidesk_codec.dir

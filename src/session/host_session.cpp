@@ -197,12 +197,8 @@ void HostSession::encodeLoop() {
         }
         float motionFrac = regions.empty() ? 0.0f
                            : static_cast<float>(motionCount) / regions.size();
-        // Smooth the ratio to avoid rapid FPS toggling
+        // Smooth the ratio — used by adaptive quality controller for FPS decisions
         motionRatio_ = motionRatio_ * 0.7f + motionFrac * 0.3f;
-        // High motion (>30% of regions) → 60fps, otherwise 30fps
-        float targetFps = (motionRatio_ > 0.3f)
-                          ? encoderConfig_.maxFps : encoderConfig_.idleFps;
-        currentTargetFps_.store(targetFps);
 
         // Convert to I420 for encoding (only for frames that have changes)
         Frame i420Frame;
@@ -252,7 +248,10 @@ void HostSession::encodeLoop() {
             uint32_t currentBitrateBps = static_cast<uint32_t>(
                 currentBitrate_.load() * 1000000.0f);
 
-            adaptiveQuality_->update(encMs, frameBudgetMs, currentBitrateBps);
+            adaptiveQuality_->update(encMs, frameBudgetMs, currentBitrateBps, motionRatio_);
+
+            // Drive capture/encode rate from adaptive quality controller
+            currentTargetFps_.store(adaptiveQuality_->targetFps());
 
             if (adaptiveQuality_->resolutionChanged()) {
                 int newW = adaptiveQuality_->targetWidth();
