@@ -68,12 +68,14 @@ bool GlRenderer::init(int width, int height) {
     createTextures(width, height);
 
     // Full-screen quad
+    // DXGI captures top-to-bottom (row 0 = top of screen), but OpenGL
+    // texture row 0 is the bottom.  Flip V so the image appears right-side up.
     float vertices[] = {
         // pos       // texcoord
-        -1.0f, -1.0f, 0.0f, 1.0f,
-         1.0f, -1.0f, 1.0f, 1.0f,
-        -1.0f,  1.0f, 0.0f, 0.0f,
-         1.0f,  1.0f, 1.0f, 0.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f, -1.0f, 1.0f, 0.0f,
+        -1.0f,  1.0f, 0.0f, 1.0f,
+         1.0f,  1.0f, 1.0f, 1.0f,
     };
 
     glGenVertexArrays(1, &vao_);
