@@ -18,6 +18,8 @@ namespace omnidesk {
 class SignalingClient;
 class HostSession;
 class ViewerSession;
+class InputHandler;
+class InputInjector;
 
 enum class AppState {
     DASHBOARD,      // Main screen: show ID, connect field
@@ -86,6 +88,8 @@ private:
     std::unique_ptr<HostSession> hostSession_;
     std::unique_ptr<ViewerSession> viewerSession_;
     std::unique_ptr<WebRtcSession> webrtcSession_;
+    std::unique_ptr<InputHandler> inputHandler_;    // viewer-side: captures local input
+    std::unique_ptr<InputInjector> inputInjector_;  // host-side: injects remote input
 
     // Thread-safe queue for actions posted from the signaling receive thread
     // and dispatched on the main/UI thread each frame.

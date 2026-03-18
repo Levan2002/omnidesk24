@@ -205,6 +205,7 @@ endif()
 # Input
 add_library(omnidesk_input STATIC
     src/input/input_handler.cpp
+    src/input/input_injector.cpp
     src/input/cursor_predictor.cpp
 )
 target_link_libraries(omnidesk_input PUBLIC omnidesk_core glfw)

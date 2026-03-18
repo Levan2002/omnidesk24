@@ -55,12 +55,12 @@ void InputHandler::glfwButtonCallback(GLFWwindow* window, int button, int action
     evt.x = static_cast<int32_t>(x * self->remoteWidth_ / winW);
     evt.y = static_cast<int32_t>(y * self->remoteHeight_ / winH);
     evt.isAbsolute = true;
+    evt.pressed = (action == GLFW_PRESS);
 
-    if (action == GLFW_PRESS) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT) evt.buttons |= 1;
-        if (button == GLFW_MOUSE_BUTTON_RIGHT) evt.buttons |= 2;
-        if (button == GLFW_MOUSE_BUTTON_MIDDLE) evt.buttons |= 4;
-    }
+    // Always set button bitmask so the receiver knows which button changed
+    if (button == GLFW_MOUSE_BUTTON_LEFT) evt.buttons |= 1;
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) evt.buttons |= 2;
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE) evt.buttons |= 4;
 
     self->onMouse_(evt);
 }

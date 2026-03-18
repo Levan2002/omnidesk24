@@ -11,6 +11,8 @@
 #include "session/host_session.h"
 #include "session/viewer_session.h"
 #include "webrtc/webrtc_session.h"
+#include "input/input_handler.h"
+#include "input/input_injector.h"
 #include "core/logger.h"
 
 #include "render/gl_proc.h"
@@ -293,8 +295,19 @@ void App::renderFrame() {
                 webrtcSession_->setOnDisconnected([this]() {
                     queueAction([this]() { disconnectSession(); });
                 });
-                webrtcSession_->setOnData([this](const uint8_t* /*data*/, size_t /*size*/) {
-                    // TODO: handle input events from viewer
+                // Create input injector for remote control
+                inputInjector_ = std::make_unique<InputInjector>();
+                inputInjector_->setScreenSize(config_.encoder.width,
+                                              config_.encoder.height);
+
+                webrtcSession_->setOnData([this](const uint8_t* data, size_t size) {
+                    // Message type 0x01 = input event
+                    if (size >= 1 + InputEvent::SIZE && data[0] == 0x01) {
+                        InputEvent ev = InputEvent::deserialize(data + 1);
+                        if (inputInjector_) {
+                            inputInjector_->inject(ev);
+                        }
+                    }
                 });
 
                 signaling_->acceptConnection(pendingConnectionFrom_);
@@ -410,7 +423,59 @@ void App::connectToPeer(const std::string& peerId) {
                 signaling_.get(), acc.fromId, wrtcCfg);
 
             webrtcSession_->setOnConnected([this]() {
-                queueAction([this]() { state_ = AppState::SESSION_VIEWER; });
+                queueAction([this]() {
+                    state_ = AppState::SESSION_VIEWER;
+
+                    // Set up input forwarding: capture local input and send to host
+                    inputHandler_ = std::make_unique<InputHandler>();
+                    inputHandler_->init(window_,
+                                        config_.encoder.width,
+                                        config_.encoder.height);
+
+                    inputHandler_->setMouseCallback([this](const MouseEvent& mev) {
+                        if (!webrtcSession_) return;
+
+                        // Determine event type from the MouseEvent fields
+                        InputEvent ev;
+                        ev.x = mev.x;
+                        ev.y = mev.y;
+
+                        if (mev.scrollX != 0 || mev.scrollY != 0) {
+                            ev.type = InputType::MOUSE_SCROLL;
+                            ev.y = static_cast<int32_t>(mev.scrollY);  // scroll delta
+                        } else if (mev.buttons != 0) {
+                            ev.type = mev.pressed ? InputType::MOUSE_DOWN
+                                                  : InputType::MOUSE_UP;
+                            // Decode button bitmask to button index
+                            if (mev.buttons & 1) ev.button = 0;       // left
+                            else if (mev.buttons & 2) ev.button = 1;  // right
+                            else if (mev.buttons & 4) ev.button = 2;  // middle
+                        } else {
+                            ev.type = InputType::MOUSE_MOVE;
+                        }
+
+                        uint8_t buf[1 + InputEvent::SIZE];
+                        buf[0] = 0x01;  // message type: input event
+                        ev.serialize(buf + 1);
+                        webrtcSession_->sendData(buf, sizeof(buf));
+                    });
+
+                    inputHandler_->setKeyCallback([this](const KeyEvent& kev) {
+                        if (!webrtcSession_) return;
+
+                        InputEvent ev;
+                        ev.type = kev.pressed ? InputType::KEY_DOWN : InputType::KEY_UP;
+                        ev.scancode = kev.scancode;
+                        ev.pressed = kev.pressed;
+
+                        uint8_t buf[1 + InputEvent::SIZE];
+                        buf[0] = 0x01;  // message type: input event
+                        ev.serialize(buf + 1);
+                        webrtcSession_->sendData(buf, sizeof(buf));
+                    });
+
+                    inputHandler_->setEnabled(true);
+                });
             });
             webrtcSession_->setOnDisconnected([this]() {
                 queueAction([this]() { disconnectSession(); });
@@ -476,6 +541,11 @@ void App::startReconnectThread() {
 }
 
 void App::disconnectSession() {
+    if (inputHandler_) {
+        inputHandler_->setEnabled(false);
+        inputHandler_.reset();
+    }
+    inputInjector_.reset();
     if (webrtcSession_) webrtcSession_->close();
     webrtcSession_.reset();
     hostSession_.reset();
@@ -492,6 +562,11 @@ void App::shutdown() {
         reconnectThread_.join();
     }
 
+    if (inputHandler_) {
+        inputHandler_->setEnabled(false);
+        inputHandler_.reset();
+    }
+    inputInjector_.reset();
     if (webrtcSession_) webrtcSession_->close();
     webrtcSession_.reset();
     hostSession_.reset();

@@ -14,6 +14,7 @@ struct MouseEvent {
     uint8_t buttons = 0;            // Bitmask: bit0=left, bit1=right, bit2=middle
     int16_t scrollX = 0, scrollY = 0;
     bool isAbsolute = true;
+    bool pressed = false;           // true = button down, false = button up (valid when buttons != 0)
 };
 
 struct KeyEvent {
