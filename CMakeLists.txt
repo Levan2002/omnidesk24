@@ -35,6 +35,7 @@ endif()
 if(NOT OMNIDESK_SERVER_ONLY)
     include(cmake/FetchDeps.cmake)
     include(cmake/FetchOpenH264.cmake)
+    include(cmake/FetchLibDataChannel.cmake)
 
     # Optional hardware encoder dependencies
     if(OMNIDESK_PLATFORM_LINUX)
