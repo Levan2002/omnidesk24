@@ -207,7 +207,8 @@ struct EncoderConfig {
     int32_t height = 1080;
     uint32_t targetBitrateBps = 2000000;  // 2 Mbps default
     uint32_t maxBitrateBps = 5000000;     // 5 Mbps cap
-    float maxFps = 30.0f;                  // 30 fps — balances quality vs CPU
+    float maxFps = 60.0f;                  // Max FPS (adaptive: drops to 30 when idle)
+    float idleFps = 30.0f;                 // FPS for low-motion (scroll, text, static)
     bool screenContent = true;             // Optimize for screen content
     uint8_t temporalLayers = 2;            // SVC temporal layers
     bool adaptiveQuantization = true;
@@ -216,7 +217,7 @@ struct EncoderConfig {
 // Capture configuration
 struct CaptureConfig {
     int32_t monitorId = -1;   // -1 = primary monitor
-    float maxFps = 30.0f;                  // Match encoder FPS
+    float maxFps = 60.0f;                  // Capture at max, encode loop adapts
     bool captureCursor = true;
 };
 

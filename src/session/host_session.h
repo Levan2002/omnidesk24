@@ -77,6 +77,10 @@ private:
     EncoderConfig encoderConfig_;
     uint64_t frameCounter_ = 0;
 
+    // Adaptive FPS: tracks motion density to switch between maxFps and idleFps
+    std::atomic<float> currentTargetFps_{30.0f};
+    float motionRatio_ = 0.0f;  // 0.0 = all static, 1.0 = all motion
+
     SendCallback sendCallback_;
     std::mutex sendCbMutex_;
 };

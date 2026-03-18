@@ -76,13 +76,16 @@ bool OpenH264Encoder::init(const EncoderConfig& cfg) {
     param.iEntropyCodingModeFlag = 0; // CAVLC (Baseline)
     param.iNumRefFrame = 1;
     param.bEnableFrameSkip = false;
-    param.iMultipleThreadIdc = 1;
+    // Use multiple encoder threads (0 = auto-detect CPU cores)
+    param.iMultipleThreadIdc = 0;
     param.bEnableDenoise = false;
     param.bEnableBackgroundDetection = true;
     param.bEnableAdaptiveQuant = cfg.adaptiveQuantization;
     param.bEnableSceneChangeDetect = true;
     param.bEnableLongTermReference = true;
     param.iLtrMarkPeriod = 30;
+    // Lower complexity → faster encode, lighter decode
+    param.iComplexityMode = LOW_COMPLEXITY;
 
     // SVC temporal layers
     param.iTemporalLayerNum = cfg.temporalLayers;
@@ -97,8 +100,10 @@ bool OpenH264Encoder::init(const EncoderConfig& cfg) {
     param.sSpatialLayers[0].uiProfileIdc = PRO_BASELINE;
     param.sSpatialLayers[0].uiLevelIdc = LEVEL_3_1;
 
-    // Single slice per frame
-    param.sSpatialLayers[0].sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
+    // Multi-slice encoding: enables parallel decoding on viewer side.
+    // 4 slices is a good balance — allows 4 decode threads.
+    param.sSpatialLayers[0].sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
+    param.sSpatialLayers[0].sSliceArgument.uiSliceNum = 4;
 
     if (encoder_->InitializeExt(&param) != cmResultSuccess) {
         destroy();

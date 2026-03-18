@@ -70,6 +70,11 @@ bool OpenH264Decoder::init(int width, int height) {
     int32_t latencyFlag = 1;
     decoder_->SetOption(DECODER_OPTION_NUM_OF_FRAMES_REMAINING_IN_BUFFER, &latencyFlag);
 
+    // Enable multithreaded decoding (uses multiple cores for slice decoding).
+    // Value 0 = auto-detect CPU count.
+    int32_t threadCount = 0;
+    decoder_->SetOption(DECODER_OPTION_NUM_OF_THREADS, &threadCount);
+
     return true;
 }
 

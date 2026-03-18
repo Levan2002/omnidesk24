@@ -87,11 +87,15 @@ void HostSession::stop() {
 }
 
 void HostSession::captureLoop() {
-    auto targetInterval = std::chrono::microseconds(
-        static_cast<int64_t>(1000000.0 / encoderConfig_.maxFps));
+    currentTargetFps_.store(encoderConfig_.idleFps);  // start at idle FPS
 
     while (running_) {
         auto frameStart = std::chrono::steady_clock::now();
+
+        // Adaptive interval: use current target FPS (set by encode loop)
+        float fps = currentTargetFps_.load();
+        auto targetInterval = std::chrono::microseconds(
+            static_cast<int64_t>(1000000.0 / fps));
 
         Frame frame;
         auto result = capture_->captureFrame(frame);
@@ -174,6 +178,20 @@ void HostSession::encodeLoop() {
             info.rect = rect;
             regions.push_back(info);
         }
+
+        // Adaptive FPS: count motion vs non-motion regions
+        int motionCount = 0;
+        for (const auto& r : regions) {
+            if (r.type == ContentType::MOTION) ++motionCount;
+        }
+        float motionFrac = regions.empty() ? 0.0f
+                           : static_cast<float>(motionCount) / regions.size();
+        // Smooth the ratio to avoid rapid FPS toggling
+        motionRatio_ = motionRatio_ * 0.7f + motionFrac * 0.3f;
+        // High motion (>30% of regions) → 60fps, otherwise 30fps
+        float targetFps = (motionRatio_ > 0.3f)
+                          ? encoderConfig_.maxFps : encoderConfig_.idleFps;
+        currentTargetFps_.store(targetFps);
 
         // Convert to I420 for encoding (only for frames that have changes)
         Frame i420Frame;
