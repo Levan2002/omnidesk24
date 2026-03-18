@@ -18,6 +18,8 @@ void AdaptiveBitrateController::reset() {
     lastRttMs_ = 0.0f;
     lastAdjustTimeMs_ = 0.0f;
     elapsedMs_ = 0.0f;
+    shouldDownscale_ = false;
+    canUpscale_ = false;
 }
 
 void AdaptiveBitrateController::setConfig(const Config& config) {
@@ -77,6 +79,10 @@ uint32_t AdaptiveBitrateController::onQualityReport(const QualityReport& report)
         uint32_t newBitrate = currentBitrateBps_ + config_.additiveIncreaseBps;
         currentBitrateBps_ = std::min(newBitrate, config_.maxBitrateBps);
     }
+
+    // Update resolution recommendation flags based on current bitrate.
+    shouldDownscale_ = (currentBitrateBps_ < kDownscaleBitrateBps);
+    canUpscale_ = (currentBitrateBps_ >= kUpscaleBitrateBps);
 
     return currentBitrateBps_;
 }

@@ -138,4 +138,77 @@ uint64_t blockHash(const uint8_t* block, int stride, int blockSize) {
     return hash;
 }
 
+// ---- I420 bilinear resize ----
+
+// Resize a single plane using bilinear interpolation.
+static void resizePlane(const uint8_t* src, int srcW, int srcH, int srcStride,
+                        uint8_t* dst, int dstW, int dstH, int dstStride) {
+    // Fixed-point scale factors (16.16 format)
+    const uint32_t xRatio = ((static_cast<uint32_t>(srcW) << 16) / dstW);
+    const uint32_t yRatio = ((static_cast<uint32_t>(srcH) << 16) / dstH);
+
+    for (int y = 0; y < dstH; ++y) {
+        uint32_t srcY = y * yRatio;
+        int sy = static_cast<int>(srcY >> 16);
+        int yFrac = static_cast<int>(srcY & 0xFFFF);
+
+        // Clamp source row to valid range
+        int sy1 = std::min(sy + 1, srcH - 1);
+
+        const uint8_t* row0 = src + sy * srcStride;
+        const uint8_t* row1 = src + sy1 * srcStride;
+        uint8_t* dstRow = dst + y * dstStride;
+
+        for (int x = 0; x < dstW; ++x) {
+            uint32_t srcX = x * xRatio;
+            int sx = static_cast<int>(srcX >> 16);
+            int xFrac = static_cast<int>(srcX & 0xFFFF);
+            int sx1 = std::min(sx + 1, srcW - 1);
+
+            // Bilinear interpolation of 4 source pixels
+            int a = row0[sx];
+            int b = row0[sx1];
+            int c = row1[sx];
+            int d = row1[sx1];
+
+            // Interpolate horizontally, then vertically
+            int top = a + (((b - a) * xFrac + 0x8000) >> 16);
+            int bot = c + (((d - c) * xFrac + 0x8000) >> 16);
+            int val = top + (((bot - top) * yFrac + 0x8000) >> 16);
+
+            dstRow[x] = static_cast<uint8_t>(std::min(std::max(val, 0), 255));
+        }
+    }
+}
+
+void resizeI420(const Frame& src, Frame& dst, int dstWidth, int dstHeight) {
+    if (src.format != PixelFormat::I420) {
+        LOG_ERROR("resizeI420: source frame must be I420");
+        return;
+    }
+
+    // Ensure even dimensions (required for I420 chroma subsampling)
+    dstWidth &= ~1;
+    dstHeight &= ~1;
+
+    dst.allocate(dstWidth, dstHeight, PixelFormat::I420);
+    dst.timestampUs = src.timestampUs;
+    dst.frameId = src.frameId;
+
+    int srcW = src.width;
+    int srcH = src.height;
+
+    // Resize Y plane
+    resizePlane(src.plane(0), srcW, srcH, src.stride,
+                dst.plane(0), dstWidth, dstHeight, dst.stride);
+
+    // Resize U plane (half resolution)
+    resizePlane(src.plane(1), srcW / 2, srcH / 2, src.stride / 2,
+                dst.plane(1), dstWidth / 2, dstHeight / 2, dst.stride / 2);
+
+    // Resize V plane (half resolution)
+    resizePlane(src.plane(2), srcW / 2, srcH / 2, src.stride / 2,
+                dst.plane(2), dstWidth / 2, dstHeight / 2, dst.stride / 2);
+}
+
 } // namespace omnidesk

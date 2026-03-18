@@ -7,6 +7,7 @@
 #include "codec/encoder.h"
 #include "codec/quality_tuner.h"
 #include "codec/rate_control.h"
+#include "codec/adaptive_quality.h"
 #include "core/clock.h"
 #include "core/logger.h"
 #include "core/simd_utils.h"
@@ -59,6 +60,16 @@ bool HostSession::start(const EncoderConfig& encConfig, const CaptureConfig& cap
     rcConfig.maxBitrateBps = encConfig.maxBitrateBps;
     rateController_ = std::make_unique<AdaptiveBitrateController>(rcConfig);
 
+    // Initialize adaptive quality controller
+    AdaptiveQuality::Config aqConfig;
+    aqConfig.nativeWidth = encConfig.width;
+    aqConfig.nativeHeight = encConfig.height;
+    adaptiveQuality_ = std::make_unique<AdaptiveQuality>(aqConfig);
+
+    nativeWidth_ = encConfig.width;
+    nativeHeight_ = encConfig.height;
+    encodeWidth_ = encConfig.width;
+    encodeHeight_ = encConfig.height;
     frameWidth_ = encConfig.width;
     frameHeight_ = encConfig.height;
 
@@ -197,9 +208,18 @@ void HostSession::encodeLoop() {
         Frame i420Frame;
         convertFrameToI420(capturedFrame, i420Frame);
 
+        // Adaptive resolution: resize I420 frame if encode resolution
+        // differs from native capture resolution.
+        Frame encodeFrame;
+        if (encodeWidth_ != i420Frame.width || encodeHeight_ != i420Frame.height) {
+            resizeI420(i420Frame, encodeFrame, encodeWidth_, encodeHeight_);
+        } else {
+            encodeFrame = std::move(i420Frame);
+        }
+
         // Encode
         EncodedPacket packet;
-        if (encoder_->encode(i420Frame, regions, packet)) {
+        if (encoder_->encode(encodeFrame, regions, packet)) {
             packet.dirtyRects = std::move(dirtyRects);
 
             // Send via transport layer
@@ -225,6 +245,45 @@ void HostSession::encodeLoop() {
                 currentFps_.store(static_cast<float>(encodedFrames) / elapsed);
                 encodedFrames = 0;
                 fpsStart = now;
+            }
+
+            // --- Adaptive quality: update after encoding ---
+            float frameBudgetMs = 1000.0f / currentTargetFps_.load();
+            uint32_t currentBitrateBps = static_cast<uint32_t>(
+                currentBitrate_.load() * 1000000.0f);
+
+            adaptiveQuality_->update(encMs, frameBudgetMs, currentBitrateBps);
+
+            if (adaptiveQuality_->resolutionChanged()) {
+                int newW = adaptiveQuality_->targetWidth();
+                int newH = adaptiveQuality_->targetHeight();
+
+                LOG_INFO("Adaptive quality: resolution %dx%d -> %dx%d (level %d)",
+                         encodeWidth_, encodeHeight_, newW, newH,
+                         adaptiveQuality_->currentLevel());
+
+                encodeWidth_ = newW;
+                encodeHeight_ = newH;
+                frameWidth_ = newW;
+                frameHeight_ = newH;
+
+                // Reconfigure encoder with new resolution
+                encoderConfig_.width = newW;
+                encoderConfig_.height = newH;
+                encoder_->updateBitrate(adaptiveQuality_->targetBitrate());
+
+                // Reinitialize encoder for new resolution
+                if (!encoder_->init(encoderConfig_)) {
+                    LOG_ERROR("Failed to reinit encoder at %dx%d, reverting", newW, newH);
+                    encoderConfig_.width = nativeWidth_;
+                    encoderConfig_.height = nativeHeight_;
+                    encodeWidth_ = nativeWidth_;
+                    encodeHeight_ = nativeHeight_;
+                    frameWidth_ = nativeWidth_;
+                    frameHeight_ = nativeHeight_;
+                    encoder_->init(encoderConfig_);
+                    adaptiveQuality_->reset();
+                }
             }
         }
 

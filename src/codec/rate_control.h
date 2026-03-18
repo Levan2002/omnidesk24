@@ -42,6 +42,13 @@ public:
     // Get the current target bitrate.
     uint32_t currentBitrate() const { return currentBitrateBps_; }
 
+    // Returns true if bandwidth conditions suggest resolution should be reduced.
+    // This lets the adaptive quality controller factor in network state.
+    bool shouldDownscaleResolution() const { return shouldDownscale_; }
+
+    // Returns true if bandwidth is healthy enough for higher resolution.
+    bool canUpscaleResolution() const { return canUpscale_; }
+
     // Reset to initial state.
     void reset();
 
@@ -54,6 +61,14 @@ private:
     float lastRttMs_ = 0.0f;
     float lastAdjustTimeMs_ = 0.0f;
     float elapsedMs_ = 0.0f;
+
+    // Resolution recommendation flags (updated each onQualityReport)
+    bool shouldDownscale_ = false;
+    bool canUpscale_ = false;
+
+    // Bandwidth thresholds for resolution decisions
+    static constexpr uint32_t kDownscaleBitrateBps = 500000;   // 500 kbps
+    static constexpr uint32_t kUpscaleBitrateBps   = 2000000;  // 2 Mbps
 };
 
 } // namespace omnidesk

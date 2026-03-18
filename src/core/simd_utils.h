@@ -28,6 +28,10 @@ bool blocksDiffer(const uint8_t* blockA, const uint8_t* blockB,
 // Compute hash of a pixel block (for change detection)
 uint64_t blockHash(const uint8_t* block, int stride, int blockSize);
 
+// Resize an I420 frame using bilinear interpolation.
+// Destination frame is allocated and filled. Widths/heights must be even.
+void resizeI420(const Frame& src, Frame& dst, int dstWidth, int dstHeight);
+
 // AVX2 accelerated versions (in simd_utils_avx2.cpp, compiled with -mavx2)
 namespace avx2 {
     void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,

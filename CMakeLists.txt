@@ -127,6 +127,7 @@ set(CODEC_SOURCES
     src/codec/codec_factory.cpp
     src/codec/rate_control.cpp
     src/codec/quality_tuner.cpp
+    src/codec/adaptive_quality.cpp
 )
 if(OMNIDESK_PLATFORM_LINUX AND VAAPI_FOUND)
     list(APPEND CODEC_SOURCES src/codec/vaapi_encoder.cpp)

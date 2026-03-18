@@ -17,6 +17,7 @@ class ContentClassifier;
 class IEncoder;
 class QualityTuner;
 class AdaptiveBitrateController;
+class AdaptiveQuality;
 
 struct HostStats {
     float fps = 0;
@@ -58,6 +59,7 @@ private:
     std::unique_ptr<ContentClassifier> classifier_;
     std::unique_ptr<QualityTuner> qualityTuner_;
     std::unique_ptr<AdaptiveBitrateController> rateController_;
+    std::unique_ptr<AdaptiveQuality> adaptiveQuality_;
 
     RingBuffer<Frame, 4> captureBuffer_;
     Frame previousFrame_;
@@ -75,6 +77,10 @@ private:
     int frameHeight_ = 0;
 
     EncoderConfig encoderConfig_;
+    int nativeWidth_ = 0;        // Original capture resolution
+    int nativeHeight_ = 0;
+    int encodeWidth_ = 0;        // Current encode resolution (may be scaled down)
+    int encodeHeight_ = 0;
     uint64_t frameCounter_ = 0;
 
     // Adaptive FPS: tracks motion density to switch between maxFps and idleFps

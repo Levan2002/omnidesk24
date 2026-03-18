@@ -34,8 +34,8 @@ public:
     void setMotionQPDelta(int delta) { motionQPDelta_ = delta; }
 
 private:
-    int textQPDelta_ = -10;   // Lower QP for text (sharper edges, better readability)
-    int motionQPDelta_ = 2;   // Slightly higher QP for motion (perceptual masking hides it)
+    int textQPDelta_ = -15;   // Maximum quality for text (sharp edges, perfect readability)
+    int motionQPDelta_ = 4;   // Higher QP for motion (perceptual masking hides artifacts, saves bandwidth)
 };
 
 } // namespace omnidesk
