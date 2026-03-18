@@ -6,7 +6,37 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#  include <winsock2.h>
+#else
+#  include <arpa/inet.h>
+#endif
+
 namespace omnidesk {
+
+// ---- Serialization helpers (network byte order) ----
+
+inline void writeU16(uint8_t* buf, uint16_t val) {
+    uint16_t net = htons(val);
+    std::memcpy(buf, &net, 2);
+}
+
+inline void writeU32(uint8_t* buf, uint32_t val) {
+    uint32_t net = htonl(val);
+    std::memcpy(buf, &net, 4);
+}
+
+inline uint16_t readU16(const uint8_t* buf) {
+    uint16_t net;
+    std::memcpy(&net, buf, 2);
+    return ntohs(net);
+}
+
+inline uint32_t readU32(const uint8_t* buf) {
+    uint32_t net;
+    std::memcpy(&net, buf, 4);
+    return ntohl(net);
+}
 
 // Pixel formats
 enum class PixelFormat : uint8_t {
@@ -197,6 +227,61 @@ struct QualityReport {
     float decodeTimeMs = 0;
     float displayTimeMs = 0;
     float jitterMs = 0;
+};
+
+// Input event types
+enum class InputType : uint8_t {
+    MOUSE_MOVE    = 0,
+    MOUSE_DOWN    = 1,
+    MOUSE_UP      = 2,
+    MOUSE_SCROLL  = 3,
+    KEY_DOWN      = 4,
+    KEY_UP        = 5,
+};
+
+// Input event struct for mouse/keyboard events
+struct InputEvent {
+    InputType type     = InputType::MOUSE_MOVE;
+    int32_t   x        = 0;
+    int32_t   y        = 0;
+    uint8_t   button   = 0;   // mouse button (0=left, 1=right, 2=middle)
+    uint32_t  scancode = 0;   // keyboard scan code
+    bool      pressed  = false;
+
+    static constexpr size_t SIZE = 16;
+
+    void serialize(uint8_t* buf) const {
+        buf[0] = static_cast<uint8_t>(type);
+        buf[1] = pressed ? 1 : 0;
+        buf[2] = button;
+        buf[3] = 0; // padding
+        writeU32(buf + 4, static_cast<uint32_t>(x));
+        writeU32(buf + 8, static_cast<uint32_t>(y));
+        writeU32(buf + 12, scancode);
+    }
+
+    static InputEvent deserialize(const uint8_t* buf) {
+        InputEvent ev;
+        ev.type     = static_cast<InputType>(buf[0]);
+        ev.pressed  = buf[1] != 0;
+        ev.button   = buf[2];
+        ev.x        = static_cast<int32_t>(readU32(buf + 4));
+        ev.y        = static_cast<int32_t>(readU32(buf + 8));
+        ev.scancode = readU32(buf + 12);
+        return ev;
+    }
+};
+
+// Peer address for signaling and communication
+struct PeerAddress {
+    std::string host;
+    uint16_t port = 0;
+
+    bool valid() const { return !host.empty() && port != 0; }
+    bool operator==(const PeerAddress& o) const {
+        return host == o.host && port == o.port;
+    }
+    std::string toString() const { return host + ":" + std::to_string(port); }
 };
 
 } // namespace omnidesk

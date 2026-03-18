@@ -159,15 +159,16 @@ endif()
 endif() # NOT OMNIDESK_SERVER_ONLY
 
 # Transport
+# NOTE: tcp_channel.cpp is no longer compiled here; TcpChannel now lives
+# in omnidesk_signaling.  transport/tcp_channel.h redirects to signaling/.
 add_library(omnidesk_transport STATIC
-    src/transport/tcp_channel.cpp
     src/transport/udp_channel.cpp
     src/transport/fec.cpp
     src/transport/congestion.cpp
     src/transport/framer.cpp
     src/transport/hole_punch.cpp
 )
-target_link_libraries(omnidesk_transport PUBLIC omnidesk_core)
+target_link_libraries(omnidesk_transport PUBLIC omnidesk_core omnidesk_signaling)
 if(OMNIDESK_PLATFORM_LINUX)
     target_link_libraries(omnidesk_transport PRIVATE pthread)
 endif()
@@ -179,9 +180,16 @@ endif()
 add_library(omnidesk_signaling STATIC
     src/signaling/signaling_server.cpp
     src/signaling/signaling_client.cpp
+    src/signaling/tcp_channel.cpp
     src/signaling/user_id.cpp
 )
-target_link_libraries(omnidesk_signaling PUBLIC omnidesk_core omnidesk_transport)
+target_link_libraries(omnidesk_signaling PUBLIC omnidesk_core)
+if(OMNIDESK_PLATFORM_LINUX)
+    target_link_libraries(omnidesk_signaling PRIVATE pthread)
+endif()
+if(OMNIDESK_PLATFORM_WINDOWS)
+    target_link_libraries(omnidesk_signaling PRIVATE ws2_32)
+endif()
 
 # ---- GUI app targets (skipped in server-only mode) ----
 if(NOT OMNIDESK_SERVER_ONLY)

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "core/types.h"
-#include "transport/tcp_channel.h"
-#include "transport/protocol.h"
+#include "signaling/tcp_channel.h"
+#include "signaling/wire_format.h"
 
 #include <atomic>
 #include <cstdint>

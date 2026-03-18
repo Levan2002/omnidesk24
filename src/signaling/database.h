@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/types.h"
-#include "transport/protocol.h"
 
 #include <cstdint>
 #include <memory>
