@@ -45,6 +45,7 @@ private:
     uint32_t vao_ = 0;
     uint32_t vbo_ = 0;
     bool initialized_ = false;
+    bool dirty_ = false;  // true when new frame uploaded, cleared after render
 };
 
 } // namespace omnidesk

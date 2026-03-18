@@ -170,6 +170,7 @@ bool GlRenderer::createShader() {
 
 void GlRenderer::uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyRects) {
     if (!initialized_ || frame.format != PixelFormat::I420) return;
+    dirty_ = true;  // Mark that we need to re-render the I420→RGB pass
 
     if (frame.width != frameWidth_ || frame.height != frameHeight_) {
         resize(frame.width, frame.height);
@@ -225,23 +226,30 @@ void GlRenderer::uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyR
 void GlRenderer::render(int viewportWidth, int viewportHeight) {
     if (!initialized_) return;
 
-    // Pass 1: I420→RGB into FBO
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-    glViewport(0, 0, frameWidth_, frameHeight_);
-    glUseProgram(shader_);
+    // Only run the I420→RGB shader when a new frame was uploaded.
+    // The FBO retains the previous RGB result, so ImGui::Image can
+    // keep displaying it without re-rendering — saves massive GPU.
+    if (dirty_) {
+        dirty_ = false;
 
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, yTexture_);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, uTexture_);
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, vTexture_);
+        // I420→RGB into FBO
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+        glViewport(0, 0, frameWidth_, frameHeight_);
+        glUseProgram(shader_);
 
-    glBindVertexArray(vao_);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, yTexture_);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, uTexture_);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, vTexture_);
 
-    // Pass 2: Blit to screen (handled by ImGui::Image or direct blit)
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindVertexArray(vao_);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
     glViewport(0, 0, viewportWidth, viewportHeight);
 }
 

@@ -822,3 +822,11 @@
 6476	10822	7955311100164346	CMakeFiles/omnidesk_ui.dir/src/ui/app.cpp.obj	d22c2ac7c093d61b
 10822	10925	7955311143574170	libomnidesk_ui.a	93a4f83c3a0f87f6
 10925	11360	7955311144609904	omnidesk24.exe	d1a73c4d7abe5134
+52	1643	7955322853423752	CMakeFiles/omnidesk_render.dir/src/render/gl_renderer.cpp.obj	ede8107b7e9833c2
+69	1734	7955322853631118	CMakeFiles/omnidesk_ui.dir/src/ui/session_view.cpp.obj	1558f336131efa9e
+1644	1780	7955322869431111	libomnidesk_render.a	4fdaf511c872816b
+57	1897	7955322853538513	CMakeFiles/omnidesk_session.dir/src/session/viewer_session.cpp.obj	4314b18d72c23961
+1897	2005	7955322871948065	libomnidesk_session.a	2b3decd7567d7522
+63	2864	7955322853538513	CMakeFiles/omnidesk_ui.dir/src/ui/app.cpp.obj	d22c2ac7c093d61b
+2864	2969	7955322881623648	libomnidesk_ui.a	93a4f83c3a0f87f6
+2969	3396	7955322882666442	omnidesk24.exe	d1a73c4d7abe5134

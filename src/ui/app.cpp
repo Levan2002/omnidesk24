@@ -162,12 +162,14 @@ void App::run() {
     auto lastFrame = std::chrono::steady_clock::now();
 
     while (!glfwWindowShouldClose(window_)) {
-        // On dashboard/connecting, sleep to save CPU — wake on events or 100ms timeout.
-        // During active session, poll every frame for low latency.
+        // Save CPU/GPU: use event-driven waiting when possible.
+        // Dashboard/Connecting: wake on events or 100ms timeout (10 FPS idle)
+        // Active session: wake on events or 16ms timeout (60 FPS cap for UI responsiveness,
+        // but the actual shader work only happens when new frames arrive via dirty_ flag)
         if (state_ == AppState::DASHBOARD || state_ == AppState::CONNECTING) {
-            glfwWaitEventsTimeout(0.1);  // 10 FPS idle — minimal CPU
+            glfwWaitEventsTimeout(0.1);
         } else {
-            glfwPollEvents();
+            glfwWaitEventsTimeout(0.016);  // ~60fps cap, but GPU idles when no new frame
         }
 
         // Delta time for timers
