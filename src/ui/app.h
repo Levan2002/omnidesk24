@@ -27,7 +27,7 @@ enum class AppState {
 };
 
 struct AppConfig {
-    std::string signalingHost = "omnidesk24.com";
+    std::string signalingHost = "signal.omnidesk24.com";
     uint16_t    signalingPort = 9800;
     // Fallback ports tried in order when signalingPort is unreachable.
     // 8443: nginx TCP-proxy (HTTPS-alternate). 443: port used by HTTPS,

@@ -164,6 +164,8 @@ private:
 
     // Escape a string for safe embedding in a JSON value (handles \, ", \n, \r, \t).
     static std::string jsonEscape(const std::string& s);
+    // Reverse of jsonEscape — restore original characters.
+    static std::string jsonUnescape(const std::string& s);
 
     // Attempt reconnection.
     bool tryReconnect();

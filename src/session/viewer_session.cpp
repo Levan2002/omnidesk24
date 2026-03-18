@@ -19,12 +19,8 @@ ViewerSession::~ViewerSession() {
 }
 
 bool ViewerSession::start() {
-    // Create decoder
-    decoder_ = CodecFactory::createDecoder();
-    if (!decoder_) {
-        LOG_ERROR("Failed to create decoder");
-        return false;
-    }
+    // Decoder is created lazily in onNalUnit/onVideoPacket
+    // to allow choosing the right backend based on the encoder used.
 
     // Create renderer components
     renderer_ = std::make_unique<GlRenderer>();
@@ -113,10 +109,28 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
     // We don't know dimensions from the NAL alone, so use defaults —
     // OpenH264 will derive the real resolution from the SPS in the bitstream.
     if (!decoderInitialized_) {
+        // Try OpenH264 first (best compatibility with OpenH264 encoder),
+        // then fall back to MF decoder, then any available decoder.
         if (!decoder_) {
-            decoder_ = CodecFactory::createDecoder();
+            decoder_ = CodecFactory::createDecoder(CodecBackend::OpenH264);
+            if (decoder_ && decoder_->init(0, 0)) {
+                LOG_INFO("Using OpenH264 decoder");
+            } else {
+                decoder_.reset();
+                decoder_ = CodecFactory::createDecoder(CodecBackend::MF);
+                if (decoder_ && decoder_->init(0, 0)) {
+                    LOG_INFO("Using Media Foundation decoder");
+                } else {
+                    decoder_.reset();
+                    decoder_ = CodecFactory::createDecoder();
+                    if (!decoder_ || !decoder_->init(0, 0)) {
+                        LOG_ERROR("No working decoder found");
+                        return;
+                    }
+                }
+            }
         }
-        if (!decoder_ || !decoder_->init(1920, 1080)) {
+        if (!decoder_) {
             LOG_ERROR("Failed to initialize decoder for NAL unit path");
             return;
         }
@@ -128,6 +142,12 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
 
     Frame decoded;
     if (decoder_->decode(data, size, decoded)) {
+        static int decOk = 0;
+        if (decOk++ < 5)
+            LOG_INFO("onNalUnit: decode OK #%d — %dx%d fmt=%d dataSize=%zu",
+                     decOk, decoded.width, decoded.height,
+                     static_cast<int>(decoded.format), decoded.data.size());
+
         auto decEnd = std::chrono::steady_clock::now();
         float decMs = std::chrono::duration<float, std::milli>(decEnd - decStart).count();
         decodeTimeMs_.store(decMs);
@@ -146,6 +166,10 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
             framesDecoded_ = 0;
             fpsStart_ = decEnd;
         }
+    } else {
+        static int decFail = 0;
+        if (decFail++ < 10)
+            LOG_WARN("onNalUnit: decode FAILED #%d (%zu bytes)", decFail, size);
     }
 }
 

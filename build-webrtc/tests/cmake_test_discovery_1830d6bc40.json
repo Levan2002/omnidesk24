@@ -1,0 +1,119 @@
+{
+  "tests": 19,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "DataChannelFlowTest",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "FullConnectionAndDataTransfer",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_data_channel_flow.cpp",
+          "line": 99
+        },
+        {
+          "name": "ConcurrentSendAndClose_NoCrash",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_data_channel_flow.cpp",
+          "line": 218
+        },
+        {
+          "name": "SignalingClient_LocalAddress",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_data_channel_flow.cpp",
+          "line": 260
+        }
+      ]
+    },
+    {
+      "name": "SignalingFlowTest",
+      "tests": 9,
+      "testsuite": [
+        {
+          "name": "ServerStartsAndStops",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 104
+        },
+        {
+          "name": "ClientConnectsAndRegisters",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 109
+        },
+        {
+          "name": "TwoClientsRegister",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 127
+        },
+        {
+          "name": "ConnectionRequest_ReceivedByTarget",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 146
+        },
+        {
+          "name": "ConnectionAccept_ReceivedByRequester",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 180
+        },
+        {
+          "name": "ConnectionReject_ReceivedByRequester",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 231
+        },
+        {
+          "name": "ConnectToOfflineUser_ReturnsOffline",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 282
+        },
+        {
+          "name": "ClientDisconnect_ServerRemovesUser",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 313
+        },
+        {
+          "name": "FullFlow_RequestAcceptBothSidesNotified",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_signaling_flow.cpp",
+          "line": 332
+        }
+      ]
+    },
+    {
+      "name": "CaptureEncodePipelineTest",
+      "tests": 7,
+      "testsuite": [
+        {
+          "name": "GradientFrame_EncodeDecode_DimensionsMatch",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_capture_encode_pipeline.cpp",
+          "line": 169
+        },
+        {
+          "name": "ColoredRects_EncodeDecode_DimensionsMatch",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_capture_encode_pipeline.cpp",
+          "line": 197
+        },
+        {
+          "name": "Roundtrip_DecodedFrameSimilarToInput",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_capture_encode_pipeline.cpp",
+          "line": 216
+        },
+        {
+          "name": "MultipleFrames_SequentialEncoding",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_capture_encode_pipeline.cpp",
+          "line": 242
+        },
+        {
+          "name": "KeyFrameRequest_ProducesKeyFrame",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_capture_encode_pipeline.cpp",
+          "line": 269
+        },
+        {
+          "name": "CodecFactory_CreatesOpenH264",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_capture_encode_pipeline.cpp",
+          "line": 298
+        },
+        {
+          "name": "ContentClassifier_SmokeTest",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_capture_encode_pipeline.cpp",
+          "line": 318
+        }
+      ]
+    }
+  ]
+}

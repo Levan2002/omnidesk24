@@ -1,0 +1,5 @@
+if(EXISTS "C:/Users/levan/OneDrive/Desktop/omnidesk24/build-webrtc/tests/omnidesk_tests[1]_tests.cmake")
+  include("C:/Users/levan/OneDrive/Desktop/omnidesk24/build-webrtc/tests/omnidesk_tests[1]_tests.cmake")
+else()
+  add_test(omnidesk_tests_NOT_BUILT omnidesk_tests_NOT_BUILT)
+endif()

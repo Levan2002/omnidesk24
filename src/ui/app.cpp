@@ -259,6 +259,15 @@ void App::renderFrame() {
                     return;
                 }
 
+                // Close any previous WebRTC session before creating a new one.
+                // This prevents the old session's onDisconnected callback from
+                // firing during destruction and killing the new session.
+                if (webrtcSession_) {
+                    webrtcSession_->setOnDisconnected(nullptr);
+                    webrtcSession_->close();
+                    webrtcSession_.reset();
+                }
+
                 // Create WebRTC session for this peer
                 WebRtcConfig wrtcCfg;
                 wrtcCfg.turnServer = config_.turnServer;
@@ -382,6 +391,13 @@ void App::connectToPeer(const std::string& peerId) {
                 statusMessage_ = "Failed to start viewer session";
                 state_ = AppState::DASHBOARD;
                 return;
+            }
+
+            // Close any previous WebRTC session cleanly
+            if (webrtcSession_) {
+                webrtcSession_->setOnDisconnected(nullptr);
+                webrtcSession_->close();
+                webrtcSession_.reset();
             }
 
             // Create WebRTC session for this peer

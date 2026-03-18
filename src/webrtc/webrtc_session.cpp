@@ -4,9 +4,6 @@
 
 #include <rtc/rtc.hpp>
 
-#include <cstring>
-#include <random>
-
 namespace omnidesk {
 
 // ---------------------------------------------------------------------------
@@ -22,25 +19,20 @@ WebRtcSession::~WebRtcSession() {
 }
 
 // ---------------------------------------------------------------------------
-// PeerConnection setup (shared between host and viewer)
+// PeerConnection setup
 // ---------------------------------------------------------------------------
 
 void WebRtcSession::setupPeerConnection() {
     rtc::Configuration rtcConfig;
 
-    // STUN servers
     for (const auto& stun : config_.stunServers) {
         rtcConfig.iceServers.emplace_back(stun);
     }
 
-    // Optional TURN server — parse "turn:host:port" into hostname + port
-    // and construct an IceServer with credentials.
     if (!config_.turnServer.empty()) {
-        // Extract hostname and port from the TURN URL.
-        // Expected format: "turn:hostname:port" or "turns:hostname:port"
         std::string url = config_.turnServer;
         std::string host;
-        uint16_t port = 3478; // default TURN port
+        uint16_t port = 3478;
         auto colonPos = url.find(':');
         if (colonPos != std::string::npos) {
             std::string rest = url.substr(colonPos + 1);
@@ -60,13 +52,11 @@ void WebRtcSession::setupPeerConnection() {
 
     pc_ = std::make_shared<rtc::PeerConnection>(rtcConfig);
 
-    // ---- onLocalDescription: send SDP to remote peer via signaling ----
+    // SDP
     pc_->onLocalDescription([this](rtc::Description desc) {
         std::string sdp(desc);
         std::string type = desc.typeString();
-
-        LOG_DEBUG("WebRtcSession: local description generated (type=%s, len=%zu)",
-                  type.c_str(), sdp.size());
+        LOG_DEBUG("WebRtcSession: local SDP generated (type=%s)", type.c_str());
 
         if (role_ == Role::Host) {
             signaling_->sendSdpOffer(remoteId_, sdp);
@@ -75,17 +65,13 @@ void WebRtcSession::setupPeerConnection() {
         }
     });
 
-    // ---- onLocalCandidate: send ICE candidate to remote peer ----
+    // ICE candidates
     pc_->onLocalCandidate([this](rtc::Candidate candidate) {
-        std::string cand = std::string(candidate);
-        std::string mid  = candidate.mid();
-
-        LOG_DEBUG("WebRtcSession: local ICE candidate (mid=%s)", mid.c_str());
-
-        signaling_->sendIceCandidate(remoteId_, cand, mid, 0);
+        signaling_->sendIceCandidate(remoteId_, std::string(candidate),
+                                      candidate.mid(), 0);
     });
 
-    // ---- onStateChange: track connected / disconnected ----
+    // Connection state
     pc_->onStateChange([this](rtc::PeerConnection::State state) {
         LOG_INFO("WebRtcSession: PeerConnection state -> %d", static_cast<int>(state));
 
@@ -102,18 +88,15 @@ void WebRtcSession::setupPeerConnection() {
         }
     });
 
-    // ---- Viewer: listen for incoming track ----
-    pc_->onTrack([this](std::shared_ptr<rtc::Track> track) {
-        LOG_INFO("WebRtcSession: received remote track (mid=%s)", track->mid().c_str());
-        setupIncomingTrack(track);
-    });
-
-    // ---- Viewer: listen for incoming DataChannel ----
+    // Viewer: incoming DataChannels
     pc_->onDataChannel([this](std::shared_ptr<rtc::DataChannel> dc) {
-        LOG_INFO("WebRtcSession: received remote DataChannel (label=%s)",
-                 dc->label().c_str());
-        dataChannel_ = dc;
-        setupDataChannel(dc);
+        LOG_INFO("WebRtcSession: received DataChannel (label=%s)", dc->label().c_str());
+        if (dc->label() == "video") {
+            setupVideoChannel(dc);
+        } else {
+            dataChannel_ = dc;
+            setupDataChannel(dc);
+        }
     });
 }
 
@@ -122,50 +105,31 @@ void WebRtcSession::setupPeerConnection() {
 // ---------------------------------------------------------------------------
 
 void WebRtcSession::setupDataChannel(std::shared_ptr<rtc::DataChannel> dc) {
-    dc->onOpen([this]() {
-        LOG_INFO("WebRtcSession: DataChannel open");
-    });
+    dc->onOpen([]() { LOG_INFO("WebRtcSession: control DataChannel open"); });
+    dc->onClosed([]() { LOG_INFO("WebRtcSession: control DataChannel closed"); });
 
-    dc->onClosed([this]() {
-        LOG_INFO("WebRtcSession: DataChannel closed");
-    });
-
-    dc->onMessage([this](rtc::message_variant msg) {
+    dc->onMessage([this](rtc::binary msg) {
         std::lock_guard<std::mutex> lock(cbMutex_);
-        if (!onData_) return;
-
-        if (std::holds_alternative<rtc::binary>(msg)) {
-            const auto& bin = std::get<rtc::binary>(msg);
-            onData_(reinterpret_cast<const uint8_t*>(bin.data()), bin.size());
-        } else {
-            // String messages: forward raw bytes.
-            const auto& str = std::get<std::string>(msg);
-            onData_(reinterpret_cast<const uint8_t*>(str.data()), str.size());
-        }
-    });
+        if (onData_)
+            onData_(reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
+    }, [](std::string) {});
 }
 
-// ---------------------------------------------------------------------------
-// Incoming track (viewer side)
-// ---------------------------------------------------------------------------
+void WebRtcSession::setupVideoChannel(std::shared_ptr<rtc::DataChannel> dc) {
+    videoChannel_ = dc;
 
-void WebRtcSession::setupIncomingTrack(std::shared_ptr<rtc::Track> track) {
-    videoTrack_ = track;
+    dc->onOpen([]() { LOG_INFO("WebRtcSession: video DataChannel open"); });
+    dc->onClosed([]() { LOG_INFO("WebRtcSession: video DataChannel closed"); });
 
-    // Install an H.264 RTP depacketizer so we receive reassembled NAL units.
-    auto depacketizer = std::make_shared<rtc::H264RtpDepacketizer>(
-        rtc::NalUnit::Separator::LongStartSequence);
-    track->setMediaHandler(depacketizer);
+    dc->onMessage([this](rtc::binary msg) {
+        static int rxCount = 0;
+        if (rxCount++ < 5)
+            LOG_INFO("WebRtcSession: video frame #%d (%zu bytes)", rxCount, msg.size());
 
-    track->onMessage([this](rtc::message_variant msg) {
         std::lock_guard<std::mutex> lock(cbMutex_);
-        if (!onVideo_) return;
-
-        if (std::holds_alternative<rtc::binary>(msg)) {
-            const auto& bin = std::get<rtc::binary>(msg);
-            onVideo_(reinterpret_cast<const uint8_t*>(bin.data()), bin.size());
-        }
-    });
+        if (onVideo_)
+            onVideo_(reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
+    }, [](std::string) {});
 }
 
 // ---------------------------------------------------------------------------
@@ -174,39 +138,21 @@ void WebRtcSession::setupIncomingTrack(std::shared_ptr<rtc::Track> track) {
 
 bool WebRtcSession::startAsHost() {
     role_ = Role::Host;
-
     LOG_INFO("WebRtcSession: starting as HOST for remote %s", remoteId_.id.c_str());
 
     try {
         setupPeerConnection();
 
-        // ---- Add H.264 video track (send-only) ----
-        rtc::Description::Video media("video", rtc::Description::Direction::SendOnly);
-        media.addH264Codec(96);  // payload type 96
+        // Reliable DataChannel for video (ensures all frames arrive;
+        // we'll optimize to unreliable with flow control later)
+        videoChannel_ = pc_->createDataChannel("video");
+        setupVideoChannel(videoChannel_);
 
-        // Generate a random SSRC
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<uint32_t> dist(1, 0xFFFFFFFE);
-        uint32_t ssrc = dist(gen);
-        media.addSSRC(ssrc, "video-stream");
-
-        videoTrack_ = pc_->addTrack(media);
-
-        // Set up RTP packetizer for H.264
-        rtpConfig_ = std::make_shared<rtc::RtpPacketizationConfig>(
-            ssrc, "video-stream", 96, rtc::H264RtpPacketizer::ClockRate);
-
-        auto packetizer = std::make_shared<rtc::H264RtpPacketizer>(
-            rtc::NalUnit::Separator::LongStartSequence, rtpConfig_);
-
-        videoTrack_->setMediaHandler(packetizer);
-
-        // ---- Create DataChannel for control messages ----
+        // Reliable DataChannel for control messages
         dataChannel_ = pc_->createDataChannel("control");
         setupDataChannel(dataChannel_);
 
-        // ---- Generate SDP offer ----
+        // Generate SDP offer
         pc_->setLocalDescription(rtc::Description::Type::Offer);
 
         LOG_INFO("WebRtcSession: host setup complete, SDP offer will be sent");
@@ -224,16 +170,11 @@ bool WebRtcSession::startAsHost() {
 
 bool WebRtcSession::startAsViewer() {
     role_ = Role::Viewer;
-
     LOG_INFO("WebRtcSession: starting as VIEWER for remote %s", remoteId_.id.c_str());
 
     try {
         setupPeerConnection();
-
-        // The viewer does NOT call setLocalDescription. It waits for the
-        // remote offer (delivered via onRemoteDescription), and
-        // libdatachannel will automatically generate an answer.
-
+        // Viewer waits for remote offer. DataChannels arrive via onDataChannel.
         LOG_INFO("WebRtcSession: viewer setup complete, waiting for remote offer");
         return true;
 
@@ -248,14 +189,7 @@ bool WebRtcSession::startAsViewer() {
 // ---------------------------------------------------------------------------
 
 void WebRtcSession::onRemoteDescription(const std::string& sdp, const std::string& type) {
-    if (!pc_) {
-        LOG_ERROR("WebRtcSession: onRemoteDescription called but PeerConnection is null");
-        return;
-    }
-
-    LOG_DEBUG("WebRtcSession: setting remote description (type=%s, len=%zu)",
-              type.c_str(), sdp.size());
-
+    if (!pc_) return;
     try {
         pc_->setRemoteDescription(rtc::Description(sdp, type));
     } catch (const std::exception& e) {
@@ -265,13 +199,7 @@ void WebRtcSession::onRemoteDescription(const std::string& sdp, const std::strin
 
 void WebRtcSession::onRemoteCandidate(const std::string& candidate,
                                        const std::string& sdpMid) {
-    if (!pc_) {
-        LOG_ERROR("WebRtcSession: onRemoteCandidate called but PeerConnection is null");
-        return;
-    }
-
-    LOG_DEBUG("WebRtcSession: adding remote ICE candidate (mid=%s)", sdpMid.c_str());
-
+    if (!pc_) return;
     try {
         pc_->addRemoteCandidate(rtc::Candidate(candidate, sdpMid));
     } catch (const std::exception& e) {
@@ -284,10 +212,9 @@ void WebRtcSession::onRemoteCandidate(const std::string& candidate,
 // ---------------------------------------------------------------------------
 
 bool WebRtcSession::sendVideo(const uint8_t* nalData, size_t size) {
-    if (!videoTrack_ || !videoTrack_->isOpen()) return false;
-
+    if (!videoChannel_ || !videoChannel_->isOpen()) return false;
     try {
-        videoTrack_->send(reinterpret_cast<const std::byte*>(nalData), size);
+        videoChannel_->send(reinterpret_cast<const std::byte*>(nalData), size);
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR("WebRtcSession: sendVideo failed: %s", e.what());
@@ -297,7 +224,6 @@ bool WebRtcSession::sendVideo(const uint8_t* nalData, size_t size) {
 
 bool WebRtcSession::sendData(const uint8_t* data, size_t size) {
     if (!dataChannel_ || !dataChannel_->isOpen()) return false;
-
     try {
         dataChannel_->send(reinterpret_cast<const std::byte*>(data), size);
         return true;
@@ -338,22 +264,18 @@ void WebRtcSession::setOnData(DataCallback cb) {
 void WebRtcSession::close() {
     connected_.store(false);
 
+    if (videoChannel_) {
+        try { videoChannel_->close(); } catch (...) {}
+        videoChannel_.reset();
+    }
     if (dataChannel_) {
         try { dataChannel_->close(); } catch (...) {}
         dataChannel_.reset();
     }
-
-    if (videoTrack_) {
-        try { videoTrack_->close(); } catch (...) {}
-        videoTrack_.reset();
-    }
-
     if (pc_) {
         try { pc_->close(); } catch (...) {}
         pc_.reset();
     }
-
-    rtpConfig_.reset();
 
     LOG_INFO("WebRtcSession: closed");
 }

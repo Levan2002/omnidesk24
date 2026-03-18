@@ -1,0 +1,233 @@
+{
+  "tests": 37,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "CursorPredictor",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "ResetPositionMatchesResetValue",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_cursor_predictor.cpp",
+          "line": 7
+        },
+        {
+          "name": "LocalDeltaReflectedInPosition",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_cursor_predictor.cpp",
+          "line": 17
+        },
+        {
+          "name": "ServerUpdateBlendsTowardServerPosition",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_cursor_predictor.cpp",
+          "line": 29
+        },
+        {
+          "name": "MultipleServerUpdatesConverge",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_cursor_predictor.cpp",
+          "line": 53
+        }
+      ]
+    },
+    {
+      "name": "QualityTuner",
+      "tests": 5,
+      "testsuite": [
+        {
+          "name": "TextRegionsGetLowerQP",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_quality_tuner.cpp",
+          "line": 8
+        },
+        {
+          "name": "MotionRegionsQPUnchanged",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_quality_tuner.cpp",
+          "line": 17
+        },
+        {
+          "name": "StaticRegionsFlaggedForSkip",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_quality_tuner.cpp",
+          "line": 25
+        },
+        {
+          "name": "TextQPClampedToValidRange",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_quality_tuner.cpp",
+          "line": 33
+        },
+        {
+          "name": "CustomTextDelta",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_quality_tuner.cpp",
+          "line": 42
+        }
+      ]
+    },
+    {
+      "name": "UserIdGenerator",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "GeneratedIdIs8Characters",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_user_id.cpp",
+          "line": 11
+        },
+        {
+          "name": "GeneratedIdIsAlphanumeric",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_user_id.cpp",
+          "line": 17
+        },
+        {
+          "name": "TwoGeneratedIdsAreDifferent",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_user_id.cpp",
+          "line": 25
+        }
+      ]
+    },
+    {
+      "name": "ContentClassifier",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "SolidColorBlock_StaticOrText",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_content_classifier.cpp",
+          "line": 11
+        },
+        {
+          "name": "RandomNoise_Motion",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_content_classifier.cpp",
+          "line": 32
+        },
+        {
+          "name": "ClassifyReturnsValidContentType",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_content_classifier.cpp",
+          "line": 63
+        }
+      ]
+    },
+    {
+      "name": "RectMerger",
+      "tests": 6,
+      "testsuite": [
+        {
+          "name": "SingleRect",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_rect_merger.cpp",
+          "line": 10
+        },
+        {
+          "name": "TwoOverlapping",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_rect_merger.cpp",
+          "line": 17
+        },
+        {
+          "name": "TwoAdjacent",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_rect_merger.cpp",
+          "line": 32
+        },
+        {
+          "name": "ManySmallRects_MergedDownToMaxRects",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_rect_merger.cpp",
+          "line": 45
+        },
+        {
+          "name": "NonOverlapping",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_rect_merger.cpp",
+          "line": 72
+        },
+        {
+          "name": "EmptyInput",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_rect_merger.cpp",
+          "line": 83
+        }
+      ]
+    },
+    {
+      "name": "SimdUtils",
+      "tests": 11,
+      "testsuite": [
+        {
+          "name": "BgraToI420_PureRed",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 25
+        },
+        {
+          "name": "BgraToI420_PureGreen",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 49
+        },
+        {
+          "name": "BgraToI420_PureBlue",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 72
+        },
+        {
+          "name": "BgraToI420_White",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 95
+        },
+        {
+          "name": "BgraToI420_Black",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 118
+        },
+        {
+          "name": "ConvertFrameToI420",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 139
+        },
+        {
+          "name": "BlocksDiffer_Identical",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 160
+        },
+        {
+          "name": "BlocksDiffer_Different",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 168
+        },
+        {
+          "name": "BlockHash_SameData",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 177
+        },
+        {
+          "name": "BlockHash_DifferentData",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 187
+        },
+        {
+          "name": "CpuSupportsAVX2_NoCrash",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_simd_utils.cpp",
+          "line": 198
+        }
+      ]
+    },
+    {
+      "name": "RingBuffer",
+      "tests": 5,
+      "testsuite": [
+        {
+          "name": "PushPopSingleItem",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_ring_buffer.cpp",
+          "line": 11
+        },
+        {
+          "name": "PushUntilFull",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_ring_buffer.cpp",
+          "line": 23
+        },
+        {
+          "name": "PopFromEmpty",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_ring_buffer.cpp",
+          "line": 32
+        },
+        {
+          "name": "FillAndDrain",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_ring_buffer.cpp",
+          "line": 38
+        },
+        {
+          "name": "MultiThreadedProducerConsumer",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/unit\/test_ring_buffer.cpp",
+          "line": 57
+        }
+      ]
+    }
+  ]
+}

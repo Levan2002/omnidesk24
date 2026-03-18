@@ -347,8 +347,11 @@ MFDecoder::MFDecoder() = default;
 MFDecoder::~MFDecoder() { destroy(); }
 
 bool MFDecoder::init(int width, int height) {
-    width_ = width;
-    height_ = height;
+    // MF decoder needs non-zero dimensions for buffer allocation.
+    // Default to 1920x1080 if caller doesn't know yet — the MFT
+    // will re-negotiate internally when it sees the actual SPS.
+    width_ = (width > 0) ? width : 1920;
+    height_ = (height > 0) ? height : 1080;
 
     HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_LITE);
     if (FAILED(hr)) return false;
@@ -421,7 +424,11 @@ bool MFDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
     sample->AddBuffer(buf.Get());
 
     HRESULT hr = transform_->ProcessInput(0, sample.Get(), 0);
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        static int piErr = 0;
+        if (piErr++ < 5) LOG_WARN("MF decode: ProcessInput failed: 0x%08x", (unsigned)hr);
+        return false;
+    }
 
     // Get output
     MFT_OUTPUT_DATA_BUFFER outputData{};
@@ -432,14 +439,24 @@ bool MFDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
     if (!(streamInfo.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)) {
         MFCreateSample(&outSample);
         Microsoft::WRL::ComPtr<IMFMediaBuffer> outBuf;
-        MFCreateMemoryBuffer(streamInfo.cbSize ? streamInfo.cbSize : width_ * height_ * 3 / 2, &outBuf);
+        DWORD bufSize = streamInfo.cbSize ? streamInfo.cbSize
+                                          : static_cast<DWORD>(width_) * height_ * 3 / 2;
+        MFCreateMemoryBuffer(bufSize, &outBuf);
         outSample->AddBuffer(outBuf.Get());
         outputData.pSample = outSample.Get();
     }
 
     DWORD status = 0;
     hr = transform_->ProcessOutput(0, 1, &outputData, &status);
-    if (FAILED(hr)) return false;
+    if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
+        // MFT needs more data (e.g. SPS/PPS received, waiting for slice)
+        return false;
+    }
+    if (FAILED(hr)) {
+        static int poErr = 0;
+        if (poErr++ < 5) LOG_WARN("MF decode: ProcessOutput failed: 0x%08x", (unsigned)hr);
+        return false;
+    }
 
     // Extract NV12 → I420
     Microsoft::WRL::ComPtr<IMFMediaBuffer> outBuffer;

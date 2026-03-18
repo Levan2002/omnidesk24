@@ -9,3 +9,7 @@ CMakeFiles/
 cmake-build-*/
 .cache/
 compile_commands.json
+build-fresh/
+build-gui/
+build-gui-single/
+build-webrtc/

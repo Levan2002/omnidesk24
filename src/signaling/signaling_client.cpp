@@ -324,7 +324,7 @@ void SignalingClient::handleMessage(const std::string& json) {
     else if (type == "sdp_offer") {
         SdpMessage msg;
         msg.fromId = UserID{jsonGetString(json, "from")};
-        msg.sdp = jsonGetString(json, "sdp");
+        msg.sdp = jsonUnescape(jsonGetString(json, "sdp"));
         msg.type = "offer";
 
         std::lock_guard<std::mutex> lock(callbackMutex_);
@@ -333,7 +333,7 @@ void SignalingClient::handleMessage(const std::string& json) {
     else if (type == "sdp_answer") {
         SdpMessage msg;
         msg.fromId = UserID{jsonGetString(json, "from")};
-        msg.sdp = jsonGetString(json, "sdp");
+        msg.sdp = jsonUnescape(jsonGetString(json, "sdp"));
         msg.type = "answer";
 
         std::lock_guard<std::mutex> lock(callbackMutex_);
@@ -342,7 +342,7 @@ void SignalingClient::handleMessage(const std::string& json) {
     else if (type == "ice_candidate") {
         IceCandidateMsg msg;
         msg.fromId = UserID{jsonGetString(json, "from")};
-        msg.candidate = jsonGetString(json, "candidate");
+        msg.candidate = jsonUnescape(jsonGetString(json, "candidate"));
         msg.sdpMid = jsonGetString(json, "sdpMid");
         std::string idxStr = jsonGetString(json, "sdpMLineIndex");
         if (!idxStr.empty()) msg.sdpMLineIndex = std::stoi(idxStr);
@@ -458,6 +458,26 @@ std::string SignalingClient::jsonEscape(const std::string& s) {
             case '\r': out += "\\r";  break;
             case '\t': out += "\\t";  break;
             default:   out += c;      break;
+        }
+    }
+    return out;
+}
+
+std::string SignalingClient::jsonUnescape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            switch (s[i + 1]) {
+                case '\\': out += '\\'; ++i; break;
+                case '"':  out += '"';  ++i; break;
+                case 'n':  out += '\n'; ++i; break;
+                case 'r':  out += '\r'; ++i; break;
+                case 't':  out += '\t'; ++i; break;
+                default:   out += s[i]; break;
+            }
+        } else {
+            out += s[i];
         }
     }
     return out;

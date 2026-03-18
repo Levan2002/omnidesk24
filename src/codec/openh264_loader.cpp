@@ -1,4 +1,5 @@
 #include "codec/openh264_loader.h"
+#include "core/logger.h"
 
 #ifdef OMNIDESK_OPENH264_DLOPEN
 
@@ -22,8 +23,13 @@ bool openh264_load() {
         nullptr
     };
     HMODULE lib = nullptr;
-    for (int i = 0; kNames[i] && !lib; ++i)
+    for (int i = 0; kNames[i] && !lib; ++i) {
         lib = LoadLibraryA(kNames[i]);
+        if (!lib) {
+            DWORD err = GetLastError();
+            LOG_WARN("OpenH264: LoadLibrary(%s) failed, error=%lu", kNames[i], err);
+        }
+    }
     if (!lib) return false;
 #define GETSYM(h, name) GetProcAddress(h, name)
 #else

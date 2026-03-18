@@ -1,0 +1,72 @@
+{
+  "tests": 12,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "EncodeQualityTest",
+      "tests": 12,
+      "testsuite": [
+        {
+          "name": "TextDocument_HighPSNR",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 522
+        },
+        {
+          "name": "Gradient_ReasonablePSNR",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 534
+        },
+        {
+          "name": "Checkerboard_MinimumQuality",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 546
+        },
+        {
+          "name": "Solid_VeryHighPSNR",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 559
+        },
+        {
+          "name": "CodeEditor_SharpSyntax",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 571
+        },
+        {
+          "name": "HighMotion_AcceptableDegradation",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 583
+        },
+        {
+          "name": "MixedContent_TextAndMotion",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 596
+        },
+        {
+          "name": "ColorBars_StandardPattern",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 609
+        },
+        {
+          "name": "StaticDesktop_LowBitrate",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 621
+        },
+        {
+          "name": "StaticDesktop_MultiFrame_BitrateConverges",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 635
+        },
+        {
+          "name": "AllPatterns_Summary",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 673
+        },
+        {
+          "name": "MultiFrame_QualityStability",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/visual\/test_encode_quality.cpp",
+          "line": 695
+        }
+      ]
+    }
+  ]
+}
