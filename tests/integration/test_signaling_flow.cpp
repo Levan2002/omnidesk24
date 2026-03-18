@@ -8,7 +8,7 @@
 #include "signaling/signaling_server.h"
 #include "signaling/signaling_client.h"
 #include "signaling/user_id.h"
-#include "transport/tcp_channel.h"
+#include "signaling/tcp_channel.h"
 
 #include <atomic>
 #include <chrono>

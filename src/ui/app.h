@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/types.h"
-#include "transport/tcp_channel.h"
+#include "signaling/tcp_channel.h"
 #include <atomic>
 #include <functional>
 #include <memory>

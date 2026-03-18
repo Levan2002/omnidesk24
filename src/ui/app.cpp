@@ -119,11 +119,9 @@ void App::sendVideoPacket(const EncodedPacket& packet) {
     auto buf = serializePacket(packet);
 
     if (relayMode_) {
-        // Send via signaling server relay
-        if (signaling_ && signaling_->isConnected() && relayPeerId_.valid()) {
-            signaling_->sendRelayData(relayPeerId_, MessageType::VIDEO_DATA,
-                                       buf.data(), static_cast<uint32_t>(buf.size()));
-        }
+        // TODO(webrtc): relay via WebRTC data channel instead of signaling server.
+        // sendRelayData was removed with the transport layer (Task 3).
+        // Task 7 will implement WebRTC-based data relay.
         return;
     }
 
@@ -387,14 +385,9 @@ void App::renderFrame() {
                 relayMode_ = true;
                 relayPeerId_ = pendingConnectionFrom_;
 
-                // Register relay callback for host (viewer may send data back)
-                signaling_->onRelayData([this](const UserID& fromId,
-                                                MessageType innerType,
-                                                const std::vector<uint8_t>& payload) {
-                    // Host currently doesn't receive video, but handle
-                    // future input relay here if needed.
-                    (void)fromId; (void)innerType; (void)payload;
-                });
+                // TODO(webrtc): register WebRTC data channel callback for host.
+                // onRelayData was removed with the transport layer (Task 3).
+                // Task 7 will set up WebRTC data channel callbacks.
 
                 state_ = AppState::SESSION_HOST;
                 signaling_->acceptConnection(pendingConnectionFrom_);
@@ -557,6 +550,11 @@ void App::connectToPeer(const std::string& peerId) {
                 return;
             }
 
+            // TODO(webrtc): register WebRTC data channel callback for viewer.
+            // onRelayData was removed with the transport layer (Task 3).
+            // Task 7 will set up WebRTC data channel for receiving video.
+            relayPeerId_ = hostId;
+
             // Try each address until one connects (P2P)
             dataRunning_ = true;
             dataChannel_ = std::make_unique<TcpChannel>();
@@ -575,28 +573,19 @@ void App::connectToPeer(const std::string& peerId) {
             }
 
             if (!connected) {
-                // P2P failed — fall back to relay through signaling server
-                LOG_INFO("P2P failed, falling back to relay mode for host %s",
+                // P2P failed — stay in relay mode
+                LOG_INFO("P2P failed, using relay mode for host %s",
                          hostId.id.c_str());
                 dataChannel_.reset();
-
                 relayMode_ = true;
-                relayPeerId_ = hostId;
-
-                // Register relay callback: incoming VIDEO_DATA → viewer session
-                signaling_->onRelayData([this](const UserID& fromId,
-                                                MessageType innerType,
-                                                const std::vector<uint8_t>& payload) {
-                    if (innerType == MessageType::VIDEO_DATA && viewerSession_) {
-                        auto pkt = deserializePacket(payload);
-                        viewerSession_->onVideoPacket(pkt);
-                    }
-                });
-
                 state_ = AppState::SESSION_VIEWER;
                 LOG_INFO("Relay mode active — viewing via server relay");
                 return;
             }
+
+            // P2P succeeded — clear relay peer
+            // TODO(webrtc): Task 7 will manage WebRTC data channel lifecycle.
+            relayPeerId_ = UserID{};
 
             LOG_INFO("Connected to host data channel (P2P)");
             state_ = AppState::SESSION_VIEWER;
@@ -685,9 +674,7 @@ void App::disconnectSession() {
     // Clear relay state
     relayMode_ = false;
     relayPeerId_ = UserID{};
-    if (signaling_) {
-        signaling_->onRelayData(nullptr);
-    }
+    // TODO(webrtc): Task 7 will clean up WebRTC data channel here.
 
     hostSession_.reset();
     viewerSession_.reset();
