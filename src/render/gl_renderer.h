@@ -46,6 +46,13 @@ private:
     uint32_t vbo_ = 0;
     bool initialized_ = false;
     bool dirty_ = false;  // true when new frame uploaded, cleared after render
+
+    // PBO (Pixel Buffer Object) for async texture upload.
+    // Double-buffered: one PBO is being filled by CPU while GPU reads the other.
+    uint32_t pboIds_[2] = {0, 0};
+    int pboIndex_ = 0;           // toggles between 0 and 1 each frame
+    size_t pboSize_ = 0;         // allocated size of each PBO
+    bool pboSupported_ = false;  // set to true if GL functions are available
 };
 
 } // namespace omnidesk

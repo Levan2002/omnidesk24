@@ -61,7 +61,7 @@ bool GlRenderer::init(int width, int height) {
     frameHeight_ = height;
 
     if (!createShader()) {
-        LOG_ERROR("Failed to create I420→RGB shader");
+        LOG_ERROR("Failed to create I420->RGB shader");
         return false;
     }
 
@@ -88,6 +88,21 @@ bool GlRenderer::init(int width, int height) {
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                           reinterpret_cast<void*>(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    // Initialize PBOs for async texture upload.
+    // Total I420 frame size = Y + U + V = w*h + w*h/4 + w*h/4 = w*h*3/2
+    pboSupported_ = (glMapBuffer != nullptr && glUnmapBuffer != nullptr);
+    if (pboSupported_) {
+        pboSize_ = static_cast<size_t>(width) * height * 3 / 2;
+        glGenBuffers(2, pboIds_);
+        for (int i = 0; i < 2; ++i) {
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds_[i]);
+            glBufferData(GL_PIXEL_UNPACK_BUFFER, pboSize_, nullptr, GL_STREAM_DRAW);
+        }
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        pboIndex_ = 0;
+        LOG_INFO("PBO async upload enabled: %zu bytes x2", pboSize_);
+    }
 
     initialized_ = true;
     LOG_INFO("GL renderer initialized: %dx%d", width, height);
@@ -170,12 +185,59 @@ bool GlRenderer::createShader() {
 
 void GlRenderer::uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyRects) {
     if (!initialized_ || frame.format != PixelFormat::I420) return;
-    dirty_ = true;  // Mark that we need to re-render the I420→RGB pass
+    dirty_ = true;  // Mark that we need to re-render the I420->RGB pass
 
     if (frame.width != frameWidth_ || frame.height != frameHeight_) {
         resize(frame.width, frame.height);
     }
 
+    // --- PBO async upload path (full frames only) ---
+    // For full frame uploads, use double-buffered PBO to overlap CPU memcpy
+    // with GPU DMA. For partial uploads, fall through to the direct path.
+    if (dirtyRects.empty() && pboSupported_ && pboSize_ > 0) {
+        size_t ySize = static_cast<size_t>(frame.width) * frame.height;
+        size_t uvSize = static_cast<size_t>(frame.width / 2) * (frame.height / 2);
+        size_t totalSize = ySize + uvSize * 2;
+
+        if (totalSize <= pboSize_) {
+            // Flip PBO index: GPU reads from [pboIndex_], CPU writes to [nextPbo]
+            int nextPbo = 1 - pboIndex_;
+
+            // 1) Initiate texture upload from the PREVIOUS PBO (GPU async DMA)
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds_[pboIndex_]);
+
+            glBindTexture(GL_TEXTURE_2D, yTexture_);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, frame.width, frame.height,
+                            GL_RED, GL_UNSIGNED_BYTE, reinterpret_cast<void*>(0));
+
+            glBindTexture(GL_TEXTURE_2D, uTexture_);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, frame.width / 2, frame.height / 2,
+                            GL_RED, GL_UNSIGNED_BYTE, reinterpret_cast<void*>(ySize));
+
+            glBindTexture(GL_TEXTURE_2D, vTexture_);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, frame.width / 2, frame.height / 2,
+                            GL_RED, GL_UNSIGNED_BYTE, reinterpret_cast<void*>(ySize + uvSize));
+
+            // 2) Map the NEXT PBO and copy new frame data into it (CPU side)
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds_[nextPbo]);
+            // Orphan the buffer to avoid GPU stall (driver can allocate a new one)
+            glBufferData(GL_PIXEL_UNPACK_BUFFER, pboSize_, nullptr, GL_STREAM_DRAW);
+            void* mapped = glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+            if (mapped) {
+                uint8_t* dst = static_cast<uint8_t*>(mapped);
+                std::memcpy(dst, frame.plane(0), ySize);
+                std::memcpy(dst + ySize, frame.plane(1), uvSize);
+                std::memcpy(dst + ySize + uvSize, frame.plane(2), uvSize);
+                glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+            }
+
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            pboIndex_ = nextPbo;
+            return;
+        }
+    }
+
+    // --- Direct upload path (non-PBO fallback, or partial dirty rects) ---
     if (dirtyRects.empty()) {
         // Full frame upload
         glBindTexture(GL_TEXTURE_2D, yTexture_);
@@ -263,9 +325,26 @@ void GlRenderer::resize(int width, int height) {
     glDeleteTextures(1, &rgbTexture_);
     glDeleteFramebuffers(1, &fbo_);
 
+    // Recreate PBOs for new size
+    if (pboSupported_ && pboIds_[0] != 0) {
+        glDeleteBuffers(2, pboIds_);
+        pboIds_[0] = pboIds_[1] = 0;
+    }
+
     frameWidth_ = width;
     frameHeight_ = height;
     createTextures(width, height);
+
+    if (pboSupported_) {
+        pboSize_ = static_cast<size_t>(width) * height * 3 / 2;
+        glGenBuffers(2, pboIds_);
+        for (int i = 0; i < 2; ++i) {
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds_[i]);
+            glBufferData(GL_PIXEL_UNPACK_BUFFER, pboSize_, nullptr, GL_STREAM_DRAW);
+        }
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        pboIndex_ = 0;
+    }
 
     LOG_INFO("GL renderer resized: %dx%d", width, height);
 }
@@ -281,6 +360,12 @@ void GlRenderer::destroy() {
     glDeleteProgram(shader_);
     glDeleteVertexArrays(1, &vao_);
     glDeleteBuffers(1, &vbo_);
+
+    if (pboIds_[0] != 0) {
+        glDeleteBuffers(2, pboIds_);
+        pboIds_[0] = pboIds_[1] = 0;
+    }
+    pboSize_ = 0;
 
     initialized_ = false;
 }

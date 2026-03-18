@@ -10,6 +10,8 @@ PFNGLGENBUFFERSPROC               glGenBuffers              = nullptr;
 PFNGLDELETEBUFFERSPROC            glDeleteBuffers           = nullptr;
 PFNGLBINDBUFFERPROC               glBindBuffer              = nullptr;
 PFNGLBUFFERDATAPROC               glBufferData              = nullptr;
+PFNGLMAPBUFFERPROC                glMapBuffer               = nullptr;
+PFNGLUNMAPBUFFERPROC              glUnmapBuffer             = nullptr;
 PFNGLCREATESHADERPROC             glCreateShader            = nullptr;
 PFNGLSHADERSOURCEPROC             glShaderSource            = nullptr;
 PFNGLCOMPILESHADERPROC            glCompileShader           = nullptr;
@@ -48,6 +50,8 @@ void loadGLProcs() {
     LOAD(glDeleteBuffers);
     LOAD(glBindBuffer);
     LOAD(glBufferData);
+    LOAD(glMapBuffer);
+    LOAD(glUnmapBuffer);
     LOAD(glCreateShader);
     LOAD(glShaderSource);
     LOAD(glCompileShader);

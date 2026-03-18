@@ -10,6 +10,7 @@
 #include "signaling/user_id.h"
 #include "session/host_session.h"
 #include "session/viewer_session.h"
+#include "render/gl_renderer.h"
 #include "webrtc/webrtc_session.h"
 #include "input/input_handler.h"
 #include "input/input_injector.h"
@@ -164,18 +165,30 @@ void App::run() {
     while (!glfwWindowShouldClose(window_)) {
         // Save CPU/GPU: use event-driven waiting when possible.
         // Dashboard/Connecting: wake on events or 100ms timeout (10 FPS idle)
-        // Active session: wake on events or 16ms timeout (60 FPS cap for UI responsiveness,
-        // but the actual shader work only happens when new frames arrive via dirty_ flag)
+        // Active session (viewer): if idle for several frames, extend the
+        //   wait timeout progressively so the GPU truly sleeps.
+        // Active session (host): minimal UI, use long timeout.
         if (state_ == AppState::DASHBOARD || state_ == AppState::CONNECTING) {
             glfwWaitEventsTimeout(0.1);
+        } else if (state_ == AppState::SESSION_HOST) {
+            glfwWaitEventsTimeout(0.1);   // host UI is a simple status screen
         } else {
-            glfwWaitEventsTimeout(0.016);  // ~60fps cap, but GPU idles when no new frame
+            // Viewer: if no new frames and no interaction for several loops,
+            // progressively slow down from 60fps to ~15fps to save GPU.
+            if (idleFrameCount_ > 3) {
+                glfwWaitEventsTimeout(0.066);  // ~15fps idle
+            } else {
+                glfwWaitEventsTimeout(0.016);  // ~60fps when active
+            }
         }
 
         // Delta time for timers
         auto now = std::chrono::steady_clock::now();
         float dt = std::chrono::duration<float>(now - lastFrame).count();
         lastFrame = now;
+
+        // Track whether anything visible changed this frame
+        uiDirty_ = false;
 
         // Process signaling messages
         if (signaling_) {
@@ -194,12 +207,14 @@ void App::run() {
                 std::lock_guard<std::mutex> lock(pendingActionsMutex_);
                 toRun.swap(pendingActions_);
             }
+            if (!toRun.empty()) uiDirty_ = true;
             for (auto& action : toRun) action();
         }
 
         // --- Connection timeout: if stuck in CONNECTING for >30 s, bail out ---
         if (state_ == AppState::CONNECTING) {
             connectTimeoutSec_ += dt;
+            uiDirty_ = true; // connecting animation always needs redraw
             if (connectTimeoutSec_ > 30.0f) {
                 connectTimeoutSec_ = 0.0f;
                 statusMessage_ = "Connection timed out";
@@ -213,6 +228,7 @@ void App::run() {
         // --- Status message auto-clear after 5 s ---
         if (!statusMessage_.empty()) {
             statusMessageTimer_ += dt;
+            uiDirty_ = true; // status message visible -> need redraw
             if (statusMessageTimer_ > 5.0f) {
                 statusMessage_.clear();
                 statusMessageTimer_ = 0.0f;
@@ -220,6 +236,38 @@ void App::run() {
         } else {
             statusMessageTimer_ = 0.0f;
         }
+
+        // Dashboard / connecting / dialogs always need full redraw
+        if (state_ == AppState::DASHBOARD || state_ == AppState::CONNECTING ||
+            showConnectionDialog_ || showSettings_ || showStats_) {
+            uiDirty_ = true;
+        }
+
+        // Check if the viewer received a new frame since last render.
+        // The GlRenderer sets dirty_=true on uploadFrame; we always need
+        // to run ImGui at least once to display the new RGB texture.
+        if (viewerSession_ && viewerSession_->renderer()) {
+            // We always mark dirty when the viewer has an active session
+            // and is likely receiving frames. The renderer's FBO-cached
+            // RGB texture is reused by ImGui::Image, so we only need to
+            // run the ImGui pass when either a new frame arrived or the
+            // window was resized / interacted with.
+            auto stats = viewerSession_->getStats();
+            if (stats.fps > 0.5f) {
+                uiDirty_ = true;  // active stream -> keep rendering
+                idleFrameCount_ = 0;
+            }
+        }
+
+        // If nothing changed during a viewer session, skip the expensive
+        // ImGui + GL render pass entirely. Just swap the previous buffer.
+        if (!uiDirty_ && state_ == AppState::SESSION_VIEWER) {
+            ++idleFrameCount_;
+            // Still swap to honor VSync (keeps the frame on screen)
+            glfwSwapBuffers(window_);
+            continue;
+        }
+        idleFrameCount_ = 0;
 
         // Start ImGui frame
         ImGui_ImplOpenGL3_NewFrame();

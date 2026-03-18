@@ -64,6 +64,10 @@ private:
     RingBuffer<Frame, 4> captureBuffer_;
     Frame previousFrame_;
 
+    // Reusable I420 frame to avoid allocating a new vector every encode cycle.
+    // convertFrameToI420 will reuse the buffer if dimensions match.
+    Frame reusableI420Frame_;
+
     std::thread captureThread_;
     std::thread encodeThread_;
     std::atomic<bool> running_{false};

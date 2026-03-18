@@ -20,20 +20,214 @@ bool cpuSupportsAVX2() {
     return false;
 }
 
-// SSE2 BGRA→I420 conversion
-// Y  = 0.299*R + 0.587*G + 0.114*B
-// Cb = -0.169*R - 0.331*G + 0.500*B + 128
-// Cr = 0.500*R - 0.419*G - 0.081*B + 128
-// Using fixed-point: multiply by 256, shift right 8
+// SSE2 BGRA->I420 conversion — REAL SIMD implementation
+// Processes 4 BGRA pixels (16 bytes) per SSE2 iteration for Y plane,
+// and 2x2 pixel blocks for chroma with SSE2 averaging.
+// BT.601 full range:
+//   Y  = ( 77*R + 150*G +  29*B + 128) >> 8
+//   Cb = (-43*R -  85*G + 128*B + 128) >> 8  + 128
+//   Cr = (128*R - 107*G -  21*B + 128) >> 8  + 128
+#ifdef OMNIDESK_X86_64
 static void bgraToI420_sse2(const uint8_t* bgra, int width, int height, int bgraStride,
                             uint8_t* yPlane, int yStride,
                             uint8_t* uPlane, int uStride,
                             uint8_t* vPlane, int vStride) {
-    // BT.601 full range conversion
-    // Y  =  0.299*R + 0.587*G + 0.114*B
-    // Cb = -0.169*R - 0.331*G + 0.500*B + 128
-    // Cr =  0.500*R - 0.419*G - 0.081*B + 128
-    // Fixed point *256: Y = (77*R + 150*G + 29*B + 128) >> 8
+    // Fixed-point coefficients for Y = (77*R + 150*G + 29*B + 128) >> 8
+    const __m128i coeff_r_y = _mm_set1_epi16(77);
+    const __m128i coeff_g_y = _mm_set1_epi16(150);
+    const __m128i coeff_b_y = _mm_set1_epi16(29);
+
+    // Chroma coefficients:
+    // U = (-43*R - 85*G + 128*B + 128) >> 8 + 128
+    // V = (128*R - 107*G - 21*B + 128) >> 8 + 128
+    const __m128i coeff_r_u = _mm_set1_epi16(-43);
+    const __m128i coeff_g_u = _mm_set1_epi16(-85);
+    const __m128i coeff_b_u = _mm_set1_epi16(128);
+    const __m128i coeff_r_v = _mm_set1_epi16(128);
+    const __m128i coeff_g_v = _mm_set1_epi16(-107);
+    const __m128i coeff_b_v = _mm_set1_epi16(-21);
+
+    const __m128i round_val = _mm_set1_epi16(128);
+    const __m128i offset_128 = _mm_set1_epi16(128);
+    const __m128i mask_00ff = _mm_set1_epi32(0x000000FF);
+    const __m128i zero = _mm_setzero_si128();
+
+    for (int y = 0; y < height; y += 2) {
+        const uint8_t* row0 = bgra + y * bgraStride;
+        const uint8_t* row1 = (y + 1 < height) ? bgra + (y + 1) * bgraStride : row0;
+        uint8_t* yRow0 = yPlane + y * yStride;
+        uint8_t* yRow1 = yPlane + (y + 1) * yStride;
+        uint8_t* uRow  = uPlane + (y / 2) * uStride;
+        uint8_t* vRow  = vPlane + (y / 2) * vStride;
+
+        int x = 0;
+        // SSE2 path: process 4 pixels at a time
+        // Each iteration loads 4 BGRA pixels (16 bytes) = 1 __m128i
+        for (; x + 3 < width; x += 4) {
+            // --- Row 0: compute Y for 4 pixels ---
+            __m128i pix0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(row0 + x * 4));
+
+            // Extract B, G, R from BGRA by shifting and masking
+            __m128i b0_32 = _mm_and_si128(pix0, mask_00ff);                         // B
+            __m128i g0_32 = _mm_and_si128(_mm_srli_epi32(pix0, 8), mask_00ff);      // G
+            __m128i r0_32 = _mm_and_si128(_mm_srli_epi32(pix0, 16), mask_00ff);     // R
+
+            // Pack 32-bit values down to 16-bit (we know values are 0-255)
+            __m128i b0_16 = _mm_packs_epi32(b0_32, zero);  // 4 values in low 64 bits
+            __m128i g0_16 = _mm_packs_epi32(g0_32, zero);
+            __m128i r0_16 = _mm_packs_epi32(r0_32, zero);
+
+            // Y = (77*R + 150*G + 29*B + 128) >> 8
+            __m128i y0_16 = _mm_add_epi16(
+                _mm_add_epi16(
+                    _mm_mullo_epi16(r0_16, coeff_r_y),
+                    _mm_mullo_epi16(g0_16, coeff_g_y)
+                ),
+                _mm_add_epi16(
+                    _mm_mullo_epi16(b0_16, coeff_b_y),
+                    round_val
+                )
+            );
+            y0_16 = _mm_srli_epi16(y0_16, 8);
+            __m128i y0_8 = _mm_packus_epi16(y0_16, zero);
+
+            // Store 4 Y values for row 0
+            *reinterpret_cast<uint32_t*>(yRow0 + x) =
+                static_cast<uint32_t>(_mm_cvtsi128_si32(y0_8));
+
+            // --- Row 1: compute Y for 4 pixels ---
+            __m128i pix1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(row1 + x * 4));
+
+            __m128i b1_32 = _mm_and_si128(pix1, mask_00ff);
+            __m128i g1_32 = _mm_and_si128(_mm_srli_epi32(pix1, 8), mask_00ff);
+            __m128i r1_32 = _mm_and_si128(_mm_srli_epi32(pix1, 16), mask_00ff);
+
+            __m128i b1_16 = _mm_packs_epi32(b1_32, zero);
+            __m128i g1_16 = _mm_packs_epi32(g1_32, zero);
+            __m128i r1_16 = _mm_packs_epi32(r1_32, zero);
+
+            __m128i y1_16 = _mm_add_epi16(
+                _mm_add_epi16(
+                    _mm_mullo_epi16(r1_16, coeff_r_y),
+                    _mm_mullo_epi16(g1_16, coeff_g_y)
+                ),
+                _mm_add_epi16(
+                    _mm_mullo_epi16(b1_16, coeff_b_y),
+                    round_val
+                )
+            );
+            y1_16 = _mm_srli_epi16(y1_16, 8);
+            __m128i y1_8 = _mm_packus_epi16(y1_16, zero);
+
+            if (y + 1 < height) {
+                *reinterpret_cast<uint32_t*>(yRow1 + x) =
+                    static_cast<uint32_t>(_mm_cvtsi128_si32(y1_8));
+            }
+
+            // --- Chroma: average 2x2 blocks, produce 2 U and 2 V values ---
+            // We have 4 pixels per row = 2 chroma pairs (x, x+1) and (x+2, x+3)
+            // Average the 4 components of each 2x2 block across both rows.
+
+            // Sum row0 and row1 channel values (still 16-bit, values 0-510)
+            __m128i b_sum = _mm_add_epi16(b0_16, b1_16);
+            __m128i g_sum = _mm_add_epi16(g0_16, g1_16);
+            __m128i r_sum = _mm_add_epi16(r0_16, r1_16);
+
+            // Horizontal pair-add: add adjacent pixels to get 2x2 block sums
+            // b_sum has [b0, b1, b2, b3, 0, 0, 0, 0]
+            // We want [(b0+b1), (b2+b3)] then divide by 4
+            // Use hadd: _mm_hadd_epi16 is SSE3, so use manual shuffle for SSE2
+            __m128i b_even = b_sum;                                    // [b0, b1, b2, b3, ...]
+            __m128i b_odd  = _mm_srli_si128(b_sum, 2);                // [b1, b2, b3, 0, ...]
+            __m128i b_pair = _mm_add_epi16(b_even, b_odd);            // [b0+b1, ...]
+            // Extract pairs at positions 0 and 2
+            int bAvg0 = (_mm_extract_epi16(b_pair, 0) + 2) >> 2; // /4 with rounding
+            int bAvg1 = (_mm_extract_epi16(b_pair, 2) + 2) >> 2;
+
+            __m128i g_odd  = _mm_srli_si128(g_sum, 2);
+            __m128i g_pair = _mm_add_epi16(g_sum, g_odd);
+            int gAvg0 = (_mm_extract_epi16(g_pair, 0) + 2) >> 2;
+            int gAvg1 = (_mm_extract_epi16(g_pair, 2) + 2) >> 2;
+
+            __m128i r_odd  = _mm_srli_si128(r_sum, 2);
+            __m128i r_pair = _mm_add_epi16(r_sum, r_odd);
+            int rAvg0 = (_mm_extract_epi16(r_pair, 0) + 2) >> 2;
+            int rAvg1 = (_mm_extract_epi16(r_pair, 2) + 2) >> 2;
+
+            // Compute U and V for each 2x2 block
+            // U = (-43*R - 85*G + 128*B + 128) >> 8 + 128
+            // V = (128*R - 107*G - 21*B + 128) >> 8 + 128
+            __m128i rAvg_16 = _mm_set_epi16(0, 0, 0, 0, 0, 0, rAvg1, rAvg0);
+            __m128i gAvg_16 = _mm_set_epi16(0, 0, 0, 0, 0, 0, gAvg1, gAvg0);
+            __m128i bAvg_16 = _mm_set_epi16(0, 0, 0, 0, 0, 0, bAvg1, bAvg0);
+
+            __m128i u_16 = _mm_add_epi16(
+                _mm_add_epi16(
+                    _mm_mullo_epi16(rAvg_16, coeff_r_u),
+                    _mm_mullo_epi16(gAvg_16, coeff_g_u)
+                ),
+                _mm_add_epi16(
+                    _mm_mullo_epi16(bAvg_16, coeff_b_u),
+                    round_val
+                )
+            );
+            u_16 = _mm_srai_epi16(u_16, 8);  // arithmetic shift (signed values)
+            u_16 = _mm_add_epi16(u_16, offset_128);
+
+            __m128i v_16 = _mm_add_epi16(
+                _mm_add_epi16(
+                    _mm_mullo_epi16(rAvg_16, coeff_r_v),
+                    _mm_mullo_epi16(gAvg_16, coeff_g_v)
+                ),
+                _mm_add_epi16(
+                    _mm_mullo_epi16(bAvg_16, coeff_b_v),
+                    round_val
+                )
+            );
+            v_16 = _mm_srai_epi16(v_16, 8);
+            v_16 = _mm_add_epi16(v_16, offset_128);
+
+            // Clamp to [0, 255] and store
+            __m128i u_8 = _mm_packus_epi16(u_16, zero);
+            __m128i v_8 = _mm_packus_epi16(v_16, zero);
+
+            uRow[x / 2 + 0] = static_cast<uint8_t>(_mm_extract_epi16(u_8, 0) & 0xFF);
+            uRow[x / 2 + 1] = static_cast<uint8_t>((_mm_extract_epi16(u_8, 0) >> 8) & 0xFF);
+            vRow[x / 2 + 0] = static_cast<uint8_t>(_mm_extract_epi16(v_8, 0) & 0xFF);
+            vRow[x / 2 + 1] = static_cast<uint8_t>((_mm_extract_epi16(v_8, 0) >> 8) & 0xFF);
+        }
+
+        // Scalar remainder for non-4-pixel-aligned width
+        for (; x < width; ++x) {
+            int b0s = row0[x * 4 + 0], g0s = row0[x * 4 + 1], r0s = row0[x * 4 + 2];
+            int yVal = (77 * r0s + 150 * g0s + 29 * b0s + 128) >> 8;
+            yRow0[x] = static_cast<uint8_t>(std::min(std::max(yVal, 0), 255));
+
+            if (y + 1 < height) {
+                int b1s = row1[x * 4 + 0], g1s = row1[x * 4 + 1], r1s = row1[x * 4 + 2];
+                int yVal1 = (77 * r1s + 150 * g1s + 29 * b1s + 128) >> 8;
+                yRow1[x] = static_cast<uint8_t>(std::min(std::max(yVal1, 0), 255));
+            }
+
+            if (x % 2 == 0 && x + 1 < width && y + 1 < height) {
+                int b = (row0[x*4+0] + row0[(x+1)*4+0] + row1[x*4+0] + row1[(x+1)*4+0]) / 4;
+                int g = (row0[x*4+1] + row0[(x+1)*4+1] + row1[x*4+1] + row1[(x+1)*4+1]) / 4;
+                int r = (row0[x*4+2] + row0[(x+1)*4+2] + row1[x*4+2] + row1[(x+1)*4+2]) / 4;
+
+                int u = ((-43 * r - 85 * g + 128 * b + 128) >> 8) + 128;
+                int v = ((128 * r - 107 * g - 21 * b + 128) >> 8) + 128;
+                uRow[x / 2] = static_cast<uint8_t>(std::min(std::max(u, 0), 255));
+                vRow[x / 2] = static_cast<uint8_t>(std::min(std::max(v, 0), 255));
+            }
+        }
+    }
+}
+#else
+// Non-x86 scalar fallback
+static void bgraToI420_sse2(const uint8_t* bgra, int width, int height, int bgraStride,
+                            uint8_t* yPlane, int yStride,
+                            uint8_t* uPlane, int uStride,
+                            uint8_t* vPlane, int vStride) {
     for (int y = 0; y < height; ++y) {
         const uint8_t* row = bgra + y * bgraStride;
         uint8_t* yRow = yPlane + y * yStride;
@@ -47,27 +241,25 @@ static void bgraToI420_sse2(const uint8_t* bgra, int width, int height, int bgra
             yRow[x] = static_cast<uint8_t>(std::min(std::max(yVal, 0), 255));
         }
 
-        // Chroma subsampling: one U,V per 2x2 block
         if (y % 2 == 0 && y + 1 < height) {
             const uint8_t* row2 = bgra + (y + 1) * bgraStride;
             uint8_t* uRow = uPlane + (y / 2) * uStride;
             uint8_t* vRow = vPlane + (y / 2) * vStride;
 
             for (int x = 0; x < width - 1; x += 2) {
-                // Average 2x2 block
                 int b = (row[x*4+0] + row[(x+1)*4+0] + row2[x*4+0] + row2[(x+1)*4+0]) / 4;
                 int g = (row[x*4+1] + row[(x+1)*4+1] + row2[x*4+1] + row2[(x+1)*4+1]) / 4;
                 int r = (row[x*4+2] + row[(x+1)*4+2] + row2[x*4+2] + row2[(x+1)*4+2]) / 4;
 
                 int u = ((-43 * r - 85 * g + 128 * b + 128) >> 8) + 128;
                 int v = ((128 * r - 107 * g - 21 * b + 128) >> 8) + 128;
-
                 uRow[x / 2] = static_cast<uint8_t>(std::min(std::max(u, 0), 255));
                 vRow[x / 2] = static_cast<uint8_t>(std::min(std::max(v, 0), 255));
             }
         }
     }
 }
+#endif
 
 void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
                 uint8_t* yPlane, int yStride,

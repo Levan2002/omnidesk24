@@ -100,6 +100,14 @@ private:
     // or any subsequent disconnect leaves us without a signaling connection.
     std::thread reconnectThread_;
     std::atomic<bool> appRunning_{false};
+
+    // --- GPU optimization: skip full ImGui render when nothing changed ---
+    // During an active viewer session, track if any UI-visible change happened
+    // this frame. If nothing changed (no new video frame, no mouse/keyboard,
+    // no pending actions), skip the ImGui NewFrame/Render cycle entirely and
+    // just swap the previous framebuffer content via VSync.
+    int idleFrameCount_ = 0;     // consecutive frames with no changes
+    bool uiDirty_ = true;        // something needs redraw
 };
 
 } // namespace omnidesk

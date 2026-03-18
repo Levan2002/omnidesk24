@@ -44,6 +44,9 @@ extern PFNGLUNIFORM2FPROC                glUniform2f;
 extern PFNGLUNIFORM4FPROC                glUniform4f;
 extern PFNGLVERTEXATTRIBPOINTERPROC      glVertexAttribPointer;
 extern PFNGLENABLEVERTEXATTRIBARRAYPROC  glEnableVertexAttribArray;
+// OpenGL 1.5 (PBO support)
+extern PFNGLMAPBUFFERPROC               glMapBuffer;
+extern PFNGLUNMAPBUFFERPROC             glUnmapBuffer;
 // OpenGL 3.0
 extern PFNGLGENVERTEXARRAYSPROC          glGenVertexArrays;
 extern PFNGLBINDVERTEXARRAYPROC          glBindVertexArray;
