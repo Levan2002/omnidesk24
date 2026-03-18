@@ -25,11 +25,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Compiler warnings
-add_compile_options(-Wall -Wextra -Wpedantic)
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_options(-O3)
-endif()
+# Compiler warnings and optimization flags — applied per-target (via
+# omnidesk_core PUBLIC) rather than globally, so FetchContent sub-projects
+# (MbedTLS, libsrtp, libjuice, usrsctp) are not affected.
+# See omnidesk_core target below for the actual flags.
 
 # Dependencies (skip GUI deps in server-only mode)
 if(NOT OMNIDESK_SERVER_ONLY)
@@ -57,6 +56,10 @@ add_library(omnidesk_core STATIC
     src/core/clock.cpp
 )
 target_include_directories(omnidesk_core PUBLIC src)
+target_compile_options(omnidesk_core PUBLIC -Wall -Wextra -Wpedantic)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(omnidesk_core PUBLIC -O3)
+endif()
 target_compile_definitions(omnidesk_core PUBLIC
     $<$<BOOL:${OMNIDESK_PLATFORM_LINUX}>:OMNIDESK_PLATFORM_LINUX>
     $<$<BOOL:${OMNIDESK_PLATFORM_WINDOWS}>:OMNIDESK_PLATFORM_WINDOWS>
@@ -175,6 +178,14 @@ endif()
 
 # ---- GUI app targets (skipped in server-only mode) ----
 if(NOT OMNIDESK_SERVER_ONLY)
+
+# WebRTC integration (libdatachannel)
+add_library(omnidesk_webrtc STATIC
+    src/webrtc/webrtc_session.cpp
+)
+target_link_libraries(omnidesk_webrtc PUBLIC
+    omnidesk_core omnidesk_signaling datachannel-static
+)
 
 # Render
 add_library(omnidesk_render STATIC
