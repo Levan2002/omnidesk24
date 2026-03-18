@@ -1,7 +1,33 @@
 {
-  "tests": 19,
+  "tests": 23,
   "name": "AllTests",
   "testsuites": [
+    {
+      "name": "WebRtcE2ETest",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "HostToViewerVideoFlow",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_webrtc_e2e.cpp",
+          "line": 210
+        },
+        {
+          "name": "MultiFrameStreaming",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_webrtc_e2e.cpp",
+          "line": 457
+        },
+        {
+          "name": "CodecRoundTrip_NoNetwork",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_webrtc_e2e.cpp",
+          "line": 591
+        },
+        {
+          "name": "BidirectionalDataChannel",
+          "file": "C:\/Users\/levan\/OneDrive\/Desktop\/omnidesk24\/tests\/integration\/test_webrtc_e2e.cpp",
+          "line": 649
+        }
+      ]
+    },
     {
       "name": "DataChannelFlowTest",
       "tests": 3,

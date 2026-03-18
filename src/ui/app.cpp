@@ -162,7 +162,13 @@ void App::run() {
     auto lastFrame = std::chrono::steady_clock::now();
 
     while (!glfwWindowShouldClose(window_)) {
-        glfwPollEvents();
+        // On dashboard/connecting, sleep to save CPU — wake on events or 100ms timeout.
+        // During active session, poll every frame for low latency.
+        if (state_ == AppState::DASHBOARD || state_ == AppState::CONNECTING) {
+            glfwWaitEventsTimeout(0.1);  // 10 FPS idle — minimal CPU
+        } else {
+            glfwPollEvents();
+        }
 
         // Delta time for timers
         auto now = std::chrono::steady_clock::now();

@@ -106,6 +106,15 @@ void ViewerSession::onVideoPacket(const EncodedPacket& packet) {
 void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
     if (!running_) return;
 
+    // Drop frame if we're still decoding the previous one.
+    // This prevents CPU overload when frames arrive faster than decode time.
+    // Exception: never drop keyframes (they start with SPS NAL type 0x67 or
+    // have start code + NAL type 7), as dropping them breaks the stream.
+    bool isKeyFrame = (size > 4 && (data[4] & 0x1F) == 7);  // SPS NAL unit
+    if (decoding_.load() && !isKeyFrame) {
+        return;  // drop this frame
+    }
+
     // Lazy-init the decoder on the first NAL unit.
     // We don't know dimensions from the NAL alone, so use defaults —
     // OpenH264 will derive the real resolution from the SPS in the bitstream.
@@ -142,6 +151,7 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
         LOG_INFO("Decoder initialized on first NAL unit");
     }
 
+    decoding_.store(true);
     auto decStart = std::chrono::steady_clock::now();
 
     Frame decoded;
@@ -175,6 +185,7 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
         if (decFail++ < 10)
             LOG_WARN("onNalUnit: decode FAILED #%d (%zu bytes)", decFail, size);
     }
+    decoding_.store(false);
 }
 
 void ViewerSession::processOnGlThread() {

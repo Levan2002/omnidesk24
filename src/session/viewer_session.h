@@ -67,6 +67,7 @@ private:
 
     std::thread decodeThread_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> decoding_{false};  // true while decode is in progress
     bool decoderInitialized_ = false;
 
     // Thread-safe frame queue: decoded frames waiting for GL upload
