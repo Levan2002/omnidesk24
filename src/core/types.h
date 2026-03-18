@@ -205,8 +205,8 @@ struct EncoderInfo {
 struct EncoderConfig {
     int32_t width = 1920;
     int32_t height = 1080;
-    uint32_t targetBitrateBps = 2000000;  // 2 Mbps default
-    uint32_t maxBitrateBps = 5000000;     // 5 Mbps cap
+    uint32_t targetBitrateBps = 4000000;  // 4 Mbps default (1080p screen content needs more)
+    uint32_t maxBitrateBps = 8000000;     // 8 Mbps cap
     float maxFps = 60.0f;                  // Max FPS (adaptive: drops to 30 when idle)
     float idleFps = 30.0f;                 // FPS for low-motion (scroll, text, static)
     bool screenContent = true;             // Optimize for screen content

@@ -173,12 +173,15 @@ void App::run() {
         } else if (state_ == AppState::SESSION_HOST) {
             glfwWaitEventsTimeout(0.1);   // host UI is a simple status screen
         } else {
-            // Viewer: if no new frames and no interaction for several loops,
-            // progressively slow down from 60fps to ~15fps to save GPU.
-            if (idleFrameCount_ > 3) {
-                glfwWaitEventsTimeout(0.066);  // ~15fps idle
+            // Viewer session: minimize latency when frames are arriving.
+            // glfwWaitEventsTimeout can sleep up to the full timeout before
+            // returning, adding up to 16ms of display latency per frame.
+            // Use PollEvents (no sleep) when the stream is active, and
+            // only fall back to a short wait when idle.
+            if (idleFrameCount_ > 5) {
+                glfwWaitEventsTimeout(0.033);  // ~30fps idle
             } else {
-                glfwWaitEventsTimeout(0.016);  // ~60fps when active
+                glfwPollEvents();  // zero-sleep: display frames ASAP
             }
         }
 
@@ -281,8 +284,12 @@ void App::run() {
         int displayW, displayH;
         glfwGetFramebufferSize(window_, &displayW, &displayH);
         glViewport(0, 0, displayW, displayH);
-        glClearColor(0.09f, 0.09f, 0.11f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        // Skip glClear during active viewer session — the video texture
+        // covers the entire viewport, so clearing is wasted GPU work.
+        if (state_ != AppState::SESSION_VIEWER) {
+            glClearColor(0.09f, 0.09f, 0.11f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window_);

@@ -74,8 +74,8 @@ bool OpenH264Encoder::init(const EncoderConfig& cfg) {
 
     // Constrained Baseline profile, single slice, no B-frames
     param.iEntropyCodingModeFlag = 0; // CAVLC (Baseline)
-    param.iNumRefFrame = 1;
-    param.bEnableFrameSkip = false;
+    param.iNumRefFrame = 3;
+    param.bEnableFrameSkip = true;
     // Use multiple encoder threads (0 = auto-detect CPU cores)
     param.iMultipleThreadIdc = 0;
     param.bEnableDenoise = false;
@@ -84,8 +84,9 @@ bool OpenH264Encoder::init(const EncoderConfig& cfg) {
     param.bEnableSceneChangeDetect = true;
     param.bEnableLongTermReference = true;
     param.iLtrMarkPeriod = 30;
-    // Lower complexity → faster encode, lighter decode
-    param.iComplexityMode = LOW_COMPLEXITY;
+    // MEDIUM_COMPLEXITY balances encode speed and output quality.
+    // LOW_COMPLEXITY sacrifices too much quality for screen content.
+    param.iComplexityMode = MEDIUM_COMPLEXITY;
 
     // SVC temporal layers
     param.iTemporalLayerNum = cfg.temporalLayers;

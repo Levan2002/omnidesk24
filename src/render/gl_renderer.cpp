@@ -23,7 +23,10 @@ void main() {
 }
 )glsl";
 
-// BT.601 YCbCr to RGB conversion
+// BT.601 full-range YCbCr to RGB conversion
+// OpenH264 SCREEN_CONTENT mode outputs full-range Y (0-255), so no
+// limited-range offset/scale is needed.  Using limited-range math on
+// full-range data lifts blacks and clips whites, making text look faded.
 static const char* kFragmentShader = R"glsl(
 #version 330 core
 in vec2 vTexCoord;
@@ -34,17 +37,13 @@ uniform sampler2D vTex;
 
 void main() {
     float y = texture(yTex, vTexCoord).r;
-    float u = texture(uTex, vTexCoord).r;
-    float v = texture(vTex, vTexCoord).r;
+    float u = texture(uTex, vTexCoord).r - 128.0/255.0;
+    float v = texture(vTex, vTexCoord).r - 128.0/255.0;
 
-    // BT.601 limited range
-    y = (y - 16.0/255.0) * (255.0/219.0);
-    u = u - 128.0/255.0;
-    v = v - 128.0/255.0;
-
-    float r = y + 1.596 * v;
-    float g = y - 0.391 * u - 0.813 * v;
-    float b = y + 2.018 * u;
+    // BT.601 full range
+    float r = y + 1.402 * v;
+    float g = y - 0.344136 * u - 0.714136 * v;
+    float b = y + 1.772 * u;
 
     fragColor = vec4(clamp(r, 0.0, 1.0),
                      clamp(g, 0.0, 1.0),
