@@ -41,6 +41,10 @@ public:
     // Decodes the packet and queues the frame for GL upload.
     void onVideoPacket(const EncodedPacket& packet);
 
+    // Called by WebRTC video track callback with raw H.264 NAL unit data.
+    // Simpler than onVideoPacket — no EncodedPacket header, just raw NAL bytes.
+    void onNalUnit(const uint8_t* data, size_t size);
+
     // Called by transport when cursor update arrives
     void onCursorUpdate(const CursorInfo& cursor);
 
@@ -62,6 +66,7 @@ private:
 
     std::thread decodeThread_;
     std::atomic<bool> running_{false};
+    bool decoderInitialized_ = false;
 
     // Thread-safe frame queue: decoded frames waiting for GL upload
     std::mutex frameMutex_;

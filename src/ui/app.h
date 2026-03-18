@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/types.h"
-#include "signaling/tcp_channel.h"
+#include "webrtc/webrtc_session.h"
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -35,6 +35,9 @@ struct AppConfig {
     std::vector<uint16_t> signalingFallbackPorts = {8443, 443};
     EncoderConfig encoder;
     CaptureConfig capture;
+    std::string turnServer;
+    std::string turnUser;
+    std::string turnPassword;
     int windowWidth = 1280;
     int windowHeight = 800;
 };
@@ -50,9 +53,6 @@ public:
 
     AppState state() const { return state_; }
 
-    // Fixed port for P2P data channel
-    static constexpr uint16_t DATA_PORT = 9801;
-
 private:
     void initImGui();
     void renderFrame();
@@ -66,16 +66,10 @@ private:
     void tryConnectSignaling();       // attempt signaling connect + register
     void startReconnectThread();      // background thread for retrying
 
-    // P2P data channel helpers
-    static std::string getLocalIp();
-    void sendVideoPacket(const EncodedPacket& packet);
-    void viewerReceiveLoop();
-
     GLFWwindow* window_ = nullptr;
     AppConfig config_;
     AppState state_ = AppState::DASHBOARD;
     UserID myId_;
-    std::string localIp_;
 
     // UI state
     char connectIdInput_[16] = {};
@@ -91,18 +85,7 @@ private:
     std::unique_ptr<SignalingClient> signaling_;
     std::unique_ptr<HostSession> hostSession_;
     std::unique_ptr<ViewerSession> viewerSession_;
-
-    // P2P data channel (direct TCP between host and viewer)
-    TcpChannel dataListener_;
-    std::unique_ptr<TcpChannel> dataChannel_;
-    std::mutex dataChannelMutex_;      // protects dataChannel_ across threads
-    std::thread dataAcceptThread_;     // host: waits for viewer to connect
-    std::thread dataRecvThread_;       // viewer: receives video packets
-    std::atomic<bool> dataRunning_{false};
-
-    // Relay mode: when P2P is impossible, send/receive data via signaling server
-    std::atomic<bool> relayMode_{false};
-    UserID relayPeerId_;               // the remote peer for relay
+    std::unique_ptr<WebRtcSession> webrtcSession_;
 
     // Thread-safe queue for actions posted from the signaling receive thread
     // and dispatched on the main/UI thread each frame.

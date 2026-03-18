@@ -10,6 +10,7 @@
 #include "signaling/user_id.h"
 #include "session/host_session.h"
 #include "session/viewer_session.h"
+#include "webrtc/webrtc_session.h"
 #include "core/logger.h"
 
 #include "render/gl_proc.h"
@@ -24,136 +25,6 @@ namespace omnidesk {
 
 App::App() = default;
 App::~App() { shutdown(); }
-
-// Detect the local LAN IP by creating a UDP socket and reading bound address.
-std::string App::getLocalIp() {
-    SocketInitializer::initialize();
-
-#ifdef _WIN32
-    SOCKET s = ::socket(AF_INET, SOCK_DGRAM, 0);
-    if (s == INVALID_SOCKET) return "127.0.0.1";
-#else
-    int s = ::socket(AF_INET, SOCK_DGRAM, 0);
-    if (s < 0) return "127.0.0.1";
-#endif
-
-    sockaddr_in server{};
-    server.sin_family = AF_INET;
-    server.sin_port = htons(53);
-    inet_pton(AF_INET, "8.8.8.8", &server.sin_addr);
-
-    ::connect(s, reinterpret_cast<sockaddr*>(&server), sizeof(server));
-
-    sockaddr_in local{};
-    socklen_t len = sizeof(local);
-    getsockname(s, reinterpret_cast<sockaddr*>(&local), &len);
-
-    char buf[INET_ADDRSTRLEN] = {};
-    inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf));
-
-#ifdef _WIN32
-    ::closesocket(s);
-#else
-    ::close(s);
-#endif
-
-    return std::string(buf);
-}
-
-// Serialize an EncodedPacket into a byte buffer for TCP transmission.
-static std::vector<uint8_t> serializePacket(const EncodedPacket& pkt) {
-    // Layout: frameId(4) + timestampUs(8) + flags(1) + rectCount(1) +
-    //         rects(rectCount * 16) + h264 data
-    uint8_t rectCount = static_cast<uint8_t>(
-        pkt.dirtyRects.size() > 255 ? 255 : pkt.dirtyRects.size());
-    size_t headerSize = 4 + 8 + 1 + 1 + rectCount * 16;
-    std::vector<uint8_t> buf(headerSize + pkt.data.size());
-
-    uint8_t* p = buf.data();
-    writeU32(p, static_cast<uint32_t>(pkt.frameId)); p += 4;
-    // Write 8-byte timestamp as two 32-bit words (high, low)
-    writeU32(p, static_cast<uint32_t>(pkt.timestampUs >> 32)); p += 4;
-    writeU32(p, static_cast<uint32_t>(pkt.timestampUs & 0xFFFFFFFF)); p += 4;
-    *p++ = pkt.isKeyFrame ? 1 : 0;
-    *p++ = rectCount;
-    for (uint8_t i = 0; i < rectCount; ++i) {
-        const auto& r = pkt.dirtyRects[i];
-        writeU32(p, static_cast<uint32_t>(r.x));     p += 4;
-        writeU32(p, static_cast<uint32_t>(r.y));     p += 4;
-        writeU32(p, static_cast<uint32_t>(r.width));  p += 4;
-        writeU32(p, static_cast<uint32_t>(r.height)); p += 4;
-    }
-    std::memcpy(p, pkt.data.data(), pkt.data.size());
-    return buf;
-}
-
-// Deserialize an EncodedPacket from a byte buffer received over TCP.
-static EncodedPacket deserializePacket(const std::vector<uint8_t>& buf) {
-    EncodedPacket pkt;
-    if (buf.size() < 14) return pkt;
-
-    const uint8_t* p = buf.data();
-    pkt.frameId = readU32(p); p += 4;
-    uint64_t tsHi = readU32(p); p += 4;
-    uint64_t tsLo = readU32(p); p += 4;
-    pkt.timestampUs = (tsHi << 32) | tsLo;
-    pkt.isKeyFrame = (*p++ != 0);
-    uint8_t rectCount = *p++;
-
-    size_t headerSize = 14 + rectCount * 16;
-    if (buf.size() < headerSize) return pkt;
-
-    pkt.dirtyRects.resize(rectCount);
-    for (uint8_t i = 0; i < rectCount; ++i) {
-        pkt.dirtyRects[i].x      = static_cast<int32_t>(readU32(p)); p += 4;
-        pkt.dirtyRects[i].y      = static_cast<int32_t>(readU32(p)); p += 4;
-        pkt.dirtyRects[i].width  = static_cast<int32_t>(readU32(p)); p += 4;
-        pkt.dirtyRects[i].height = static_cast<int32_t>(readU32(p)); p += 4;
-    }
-
-    pkt.data.assign(p, buf.data() + buf.size());
-    return pkt;
-}
-
-void App::sendVideoPacket(const EncodedPacket& packet) {
-    auto buf = serializePacket(packet);
-
-    if (relayMode_) {
-        // TODO(webrtc): relay via WebRTC data channel instead of signaling server.
-        // sendRelayData was removed with the transport layer (Task 3).
-        // Task 7 will implement WebRTC-based data relay.
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(dataChannelMutex_);
-    if (!dataChannel_ || !dataChannel_->isOpen()) return;
-    dataChannel_->send(MessageType::VIDEO_DATA, buf);
-}
-
-void App::viewerReceiveLoop() {
-    while (dataRunning_ && dataChannel_ && dataChannel_->isOpen()) {
-        if (!dataChannel_->pollRead(100)) continue;
-
-        MessageType type;
-        std::vector<uint8_t> payload;
-        auto result = dataChannel_->recv(type, payload);
-
-        if (result == SocketResult::OK && type == MessageType::VIDEO_DATA) {
-            auto pkt = deserializePacket(payload);
-            if (viewerSession_) {
-                viewerSession_->onVideoPacket(pkt);
-            }
-        } else if (result == SocketResult::DISCONNECTED ||
-                   result == SocketResult::SOCK_ERROR) {
-            LOG_WARN("Data channel disconnected");
-            queueAction([this]() {
-                disconnectSession();
-                statusMessage_ = "Connection to host lost";
-            });
-            break;
-        }
-    }
-}
 
 bool App::init(const AppConfig& config) {
     config_ = config;
@@ -182,10 +53,6 @@ bool App::init(const AppConfig& config) {
 
     loadGLProcs();
     initImGui();
-
-    // Detect local IP for P2P data connections
-    localIp_ = getLocalIp();
-    LOG_INFO("Local IP: %s", localIp_.c_str());
 
     // Generate or load user ID
     UserIdGenerator idGen;
@@ -232,6 +99,23 @@ bool App::init(const AppConfig& config) {
             } else {
                 LOG_INFO("Registered with relay server as %s", myId_.id.c_str());
             }
+        });
+    });
+
+    // WebRTC signaling: wire SDP/ICE callbacks to the WebRtcSession.
+    signaling_->onSdpOffer([this](const SdpMessage& msg) {
+        queueAction([this, msg]() {
+            if (webrtcSession_) webrtcSession_->onRemoteDescription(msg.sdp, "offer");
+        });
+    });
+    signaling_->onSdpAnswer([this](const SdpMessage& msg) {
+        queueAction([this, msg]() {
+            if (webrtcSession_) webrtcSession_->onRemoteDescription(msg.sdp, "answer");
+        });
+    });
+    signaling_->onIceCandidate([this](const IceCandidateMsg& ice) {
+        queueAction([this, ice]() {
+            if (webrtcSession_) webrtcSession_->onRemoteCandidate(ice.candidate, ice.sdpMid);
         });
     });
 
@@ -367,7 +251,7 @@ void App::renderFrame() {
             [this]() { // Accept
                 showConnectionDialog_ = false;
 
-                // Start host session
+                // Start host session (capture + encode pipeline)
                 hostSession_ = std::make_unique<HostSession>();
                 if (!hostSession_->start(config_.encoder, config_.capture)) {
                     statusMessage_ = "Failed to start host session";
@@ -375,62 +259,37 @@ void App::renderFrame() {
                     return;
                 }
 
-                // Set up send callback: encode loop -> TCP data channel or relay
+                // Create WebRTC session for this peer
+                WebRtcConfig wrtcCfg;
+                wrtcCfg.turnServer = config_.turnServer;
+                wrtcCfg.turnUser = config_.turnUser;
+                wrtcCfg.turnPassword = config_.turnPassword;
+
+                webrtcSession_ = std::make_unique<WebRtcSession>(
+                    signaling_.get(), pendingConnectionFrom_, wrtcCfg);
+
+                // Wire encoded packets from the host encode loop to the WebRTC video track
                 hostSession_->setSendCallback([this](const EncodedPacket& pkt) {
-                    sendVideoPacket(pkt);
+                    if (webrtcSession_) {
+                        webrtcSession_->sendVideo(pkt.data.data(), pkt.data.size());
+                    }
                 });
 
-                // Enable relay mode immediately so video starts flowing
-                // through the signaling server without waiting for P2P.
-                relayMode_ = true;
-                relayPeerId_ = pendingConnectionFrom_;
-
-                // TODO(webrtc): register WebRTC data channel callback for host.
-                // onRelayData was removed with the transport layer (Task 3).
-                // Task 7 will set up WebRTC data channel callbacks.
-
-                state_ = AppState::SESSION_HOST;
-                signaling_->acceptConnection(pendingConnectionFrom_);
-
-                // Force a keyframe so the viewer can start decoding
-                // as soon as relay data arrives.
-                if (hostSession_) {
-                    hostSession_->requestKeyFrame();
-                }
-
-                // Also start P2P data listener — if the viewer can connect
-                // directly, we'll switch off relay for better performance.
-                dataRunning_ = true;
-                if (dataListener_.listen(DATA_PORT)) {
-                    LOG_INFO("Data listener started on port %d", DATA_PORT);
-                    dataAcceptThread_ = std::thread([this]() {
-                        LOG_INFO("Waiting for viewer P2P connect on data port...");
-                        for (int i = 0; i < 300 && dataRunning_; ++i) {
-                            if (dataListener_.pollRead(100)) {
-                                auto accepted = dataListener_.accept();
-                                if (accepted) {
-                                    LOG_INFO("Viewer connected via P2P from %s:%d, switching off relay",
-                                             accepted->remoteAddress().c_str(),
-                                             accepted->remotePort());
-                                    {
-                                        std::lock_guard<std::mutex> lock(dataChannelMutex_);
-                                        dataChannel_ = std::move(accepted);
-                                    }
-                                    // Switch from relay to direct P2P
-                                    relayMode_ = false;
-                                    if (hostSession_) {
-                                        hostSession_->requestKeyFrame();
-                                    }
-                                    return;
-                                }
-                            }
-                        }
-                        LOG_INFO("No P2P viewer within timeout, staying on relay");
-                        dataListener_.close();
+                webrtcSession_->setOnConnected([this]() {
+                    queueAction([this]() {
+                        state_ = AppState::SESSION_HOST;
+                        if (hostSession_) hostSession_->requestKeyFrame();
                     });
-                } else {
-                    LOG_WARN("Could not listen on data port %d, relay-only mode", DATA_PORT);
-                }
+                });
+                webrtcSession_->setOnDisconnected([this]() {
+                    queueAction([this]() { disconnectSession(); });
+                });
+                webrtcSession_->setOnData([this](const uint8_t* /*data*/, size_t /*size*/) {
+                    // TODO: handle input events from viewer
+                });
+
+                signaling_->acceptConnection(pendingConnectionFrom_);
+                webrtcSession_->startAsHost();
             },
             [this]() { // Reject
                 showConnectionDialog_ = false;
@@ -513,36 +372,11 @@ void App::connectToPeer(const std::string& peerId) {
     UserID targetId{normalizedId};
 
     // Set connection-result callbacks before sending the request to avoid races.
-    signaling_->onConnectionAccepted([this](const ConnectionAcceptance& acc) {
-        // Extract host's address for P2P data connection.
-        // Try local address first (same LAN), fall back to public.
-        PeerAddress hostAddr = acc.peerLocalAddr.valid()
-            ? acc.peerLocalAddr : acc.peerPublicAddr;
-
-        LOG_INFO("Host addresses — local: %s:%d, public: %s:%d, using: %s",
-                 acc.peerLocalAddr.host.c_str(), acc.peerLocalAddr.port,
-                 acc.peerPublicAddr.host.c_str(), acc.peerPublicAddr.port,
-                 acc.peerLocalAddr.valid() ? "local" : "public");
-
-        // Override port with our fixed data port
-        hostAddr.port = DATA_PORT;
-
-        // Build fallback list: try local first, then public
-        std::vector<PeerAddress> addrsToTry;
-        addrsToTry.push_back(hostAddr);
-        if (acc.peerLocalAddr.valid() && acc.peerPublicAddr.valid() &&
-            acc.peerLocalAddr.host != acc.peerPublicAddr.host) {
-            PeerAddress pubAddr = acc.peerPublicAddr;
-            pubAddr.port = DATA_PORT;
-            addrsToTry.push_back(pubAddr);
-        }
-
-        UserID hostId = acc.fromId;
-
-        queueAction([this, addrsToTry, hostId]() {
+    signaling_->onConnectionAccepted([this, targetId](const ConnectionAcceptance& acc) {
+        queueAction([this, targetId, acc]() {
             connectTimeoutSec_ = 0.0f;
 
-            // Create viewer session
+            // Create viewer session (decoder + renderer)
             viewerSession_ = std::make_unique<ViewerSession>();
             if (!viewerSession_->start()) {
                 statusMessage_ = "Failed to start viewer session";
@@ -550,48 +384,29 @@ void App::connectToPeer(const std::string& peerId) {
                 return;
             }
 
-            // TODO(webrtc): register WebRTC data channel callback for viewer.
-            // onRelayData was removed with the transport layer (Task 3).
-            // Task 7 will set up WebRTC data channel for receiving video.
-            relayPeerId_ = hostId;
+            // Create WebRTC session for this peer
+            WebRtcConfig wrtcCfg;
+            wrtcCfg.turnServer = config_.turnServer;
+            wrtcCfg.turnUser = config_.turnUser;
+            wrtcCfg.turnPassword = config_.turnPassword;
 
-            // Try each address until one connects (P2P)
-            dataRunning_ = true;
-            dataChannel_ = std::make_unique<TcpChannel>();
-            bool connected = false;
+            webrtcSession_ = std::make_unique<WebRtcSession>(
+                signaling_.get(), acc.fromId, wrtcCfg);
 
-            for (const auto& addr : addrsToTry) {
-                LOG_INFO("Trying host data channel at %s:%d",
-                         addr.host.c_str(), addr.port);
-                if (dataChannel_->connect(addr.host, addr.port, 5000)) {
-                    connected = true;
-                    break;
-                }
-                LOG_WARN("Failed to connect to %s:%d, trying next...",
-                         addr.host.c_str(), addr.port);
-                dataChannel_ = std::make_unique<TcpChannel>();
-            }
+            webrtcSession_->setOnConnected([this]() {
+                queueAction([this]() { state_ = AppState::SESSION_VIEWER; });
+            });
+            webrtcSession_->setOnDisconnected([this]() {
+                queueAction([this]() { disconnectSession(); });
+            });
+            webrtcSession_->setOnVideo([this](const uint8_t* data, size_t size) {
+                if (viewerSession_) viewerSession_->onNalUnit(data, size);
+            });
+            webrtcSession_->setOnData([this](const uint8_t* /*data*/, size_t /*size*/) {
+                // TODO: handle cursor updates from host
+            });
 
-            if (!connected) {
-                // P2P failed — stay in relay mode
-                LOG_INFO("P2P failed, using relay mode for host %s",
-                         hostId.id.c_str());
-                dataChannel_.reset();
-                relayMode_ = true;
-                state_ = AppState::SESSION_VIEWER;
-                LOG_INFO("Relay mode active — viewing via server relay");
-                return;
-            }
-
-            // P2P succeeded — clear relay peer
-            // TODO(webrtc): Task 7 will manage WebRTC data channel lifecycle.
-            relayPeerId_ = UserID{};
-
-            LOG_INFO("Connected to host data channel (P2P)");
-            state_ = AppState::SESSION_VIEWER;
-
-            // Start receiving video packets in background
-            dataRecvThread_ = std::thread(&App::viewerReceiveLoop, this);
+            webrtcSession_->startAsViewer();
         });
     });
 
@@ -618,21 +433,9 @@ void App::tryConnectSignaling() {
         LOG_INFO("Connected to relay %s:%d",
                  config_.signalingHost.c_str(), signaling_->connectedPort());
 
-        // Use the signaling TCP socket's local address — this is the actual
-        // LAN IP the OS chose for this connection, which is more reliable
-        // than the UDP getsockname trick (avoids Docker/VPN adapter issues).
-        std::string sigLocalIp = signaling_->localAddress();
-        if (!sigLocalIp.empty() && sigLocalIp != "0.0.0.0") {
-            localIp_ = sigLocalIp;
-            LOG_INFO("Local IP (from signaling socket): %s", localIp_.c_str());
-        }
-
-        // Register with our local IP and data port so the signaling server
-        // can relay our address to peers.
-        PeerAddress localAddr;
-        localAddr.host = localIp_;
-        localAddr.port = DATA_PORT;
-        signaling_->registerUser(myId_, localAddr);
+        // Register with the signaling server. With WebRTC, ICE handles
+        // NAT traversal, so we don't need to pass a local address.
+        signaling_->registerUser(myId_);
     }
 }
 
@@ -657,25 +460,8 @@ void App::startReconnectThread() {
 }
 
 void App::disconnectSession() {
-    // Stop data threads
-    dataRunning_ = false;
-    {
-        std::lock_guard<std::mutex> lock(dataChannelMutex_);
-        if (dataChannel_) dataChannel_->close();
-    }
-    dataListener_.close();
-    if (dataAcceptThread_.joinable()) dataAcceptThread_.join();
-    if (dataRecvThread_.joinable()) dataRecvThread_.join();
-    {
-        std::lock_guard<std::mutex> lock(dataChannelMutex_);
-        dataChannel_.reset();
-    }
-
-    // Clear relay state
-    relayMode_ = false;
-    relayPeerId_ = UserID{};
-    // TODO(webrtc): Task 7 will clean up WebRTC data channel here.
-
+    if (webrtcSession_) webrtcSession_->close();
+    webrtcSession_.reset();
     hostSession_.reset();
     viewerSession_.reset();
     state_ = AppState::DASHBOARD;
@@ -685,21 +471,13 @@ void App::disconnectSession() {
 
 void App::shutdown() {
     appRunning_ = false;
-    dataRunning_ = false;
 
     if (reconnectThread_.joinable()) {
         reconnectThread_.join();
     }
 
-    // Close data channel before joining threads
-    {
-        std::lock_guard<std::mutex> lock(dataChannelMutex_);
-        if (dataChannel_) dataChannel_->close();
-    }
-    dataListener_.close();
-    if (dataAcceptThread_.joinable()) dataAcceptThread_.join();
-    if (dataRecvThread_.joinable()) dataRecvThread_.join();
-
+    if (webrtcSession_) webrtcSession_->close();
+    webrtcSession_.reset();
     hostSession_.reset();
     viewerSession_.reset();
     signaling_.reset();

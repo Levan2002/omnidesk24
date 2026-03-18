@@ -31,10 +31,18 @@ bool HostSession::start(const EncoderConfig& encConfig, const CaptureConfig& cap
         return false;
     }
 
-    // Create encoder (auto-selects best available)
-    encoder_ = CodecFactory::createEncoder();
-    if (!encoder_ || !encoder_->init(encConfig)) {
-        LOG_ERROR("Failed to initialize encoder");
+    // Create encoder — try each backend until one initialises successfully.
+    for (auto backend : CodecFactory::availableBackends()) {
+        auto enc = CodecFactory::createEncoder(backend);
+        if (enc && enc->init(encConfig)) {
+            encoder_ = std::move(enc);
+            break;
+        }
+        LOG_INFO("Encoder backend %s: skipped (init failed)",
+                 CodecFactory::backendName(backend));
+    }
+    if (!encoder_) {
+        LOG_ERROR("Failed to initialize encoder (no working backend)");
         return false;
     }
 

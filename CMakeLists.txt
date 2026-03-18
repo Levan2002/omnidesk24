@@ -229,12 +229,12 @@ add_library(omnidesk_session STATIC
 )
 target_link_libraries(omnidesk_session PUBLIC
     omnidesk_core omnidesk_capture omnidesk_diff
-    omnidesk_codec omnidesk_signaling
+    omnidesk_codec omnidesk_webrtc omnidesk_signaling
     omnidesk_render omnidesk_input
 )
 
-# UI depends on session and signaling (app.cpp orchestrates everything)
-target_link_libraries(omnidesk_ui PUBLIC omnidesk_session omnidesk_signaling omnidesk_render)
+# UI depends on session, signaling, and webrtc (app.cpp orchestrates everything)
+target_link_libraries(omnidesk_ui PUBLIC omnidesk_session omnidesk_signaling omnidesk_render omnidesk_webrtc)
 
 # Main executable (GUI app) — WIN32 suppresses the console window on Windows
 if(OMNIDESK_PLATFORM_WINDOWS)

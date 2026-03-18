@@ -56,6 +56,18 @@ void ViewerSession::stop() {
 void ViewerSession::onVideoPacket(const EncodedPacket& packet) {
     if (!decoder_ || !running_) return;
 
+    // Lazy-init the decoder on the first packet (resolution not known earlier).
+    if (!decoderInitialized_) {
+        // Use 0,0 — OpenH264 derives the resolution from the SPS in the
+        // bitstream, so the hint values don't matter much.
+        if (!decoder_->init(0, 0)) {
+            LOG_ERROR("Failed to initialize decoder");
+            return;
+        }
+        decoderInitialized_ = true;
+        LOG_INFO("Decoder initialized on first video packet");
+    }
+
     auto decStart = std::chrono::steady_clock::now();
 
     Frame decoded;
@@ -91,6 +103,49 @@ void ViewerSession::onVideoPacket(const EncodedPacket& packet) {
         currentFps_.store(static_cast<float>(framesDecoded_) / elapsed);
         framesDecoded_ = 0;
         fpsStart_ = decEnd;
+    }
+}
+
+void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
+    if (!running_) return;
+
+    // Lazy-init the decoder on the first NAL unit.
+    // We don't know dimensions from the NAL alone, so use defaults —
+    // OpenH264 will derive the real resolution from the SPS in the bitstream.
+    if (!decoderInitialized_) {
+        if (!decoder_) {
+            decoder_ = CodecFactory::createDecoder();
+        }
+        if (!decoder_ || !decoder_->init(1920, 1080)) {
+            LOG_ERROR("Failed to initialize decoder for NAL unit path");
+            return;
+        }
+        decoderInitialized_ = true;
+        LOG_INFO("Decoder initialized on first NAL unit");
+    }
+
+    auto decStart = std::chrono::steady_clock::now();
+
+    Frame decoded;
+    if (decoder_->decode(data, size, decoded)) {
+        auto decEnd = std::chrono::steady_clock::now();
+        float decMs = std::chrono::duration<float, std::milli>(decEnd - decStart).count();
+        decodeTimeMs_.store(decMs);
+
+        float bits = static_cast<float>(size) * 8.0f;
+        currentBitrate_.store(bits / 1000000.0f);
+
+        std::lock_guard<std::mutex> lock(frameMutex_);
+        pendingFrame_ = std::move(decoded);
+        hasNewFrame_ = true;
+
+        ++framesDecoded_;
+        float elapsed = std::chrono::duration<float>(decEnd - fpsStart_).count();
+        if (elapsed >= 1.0f) {
+            currentFps_.store(static_cast<float>(framesDecoded_) / elapsed);
+            framesDecoded_ = 0;
+            fpsStart_ = decEnd;
+        }
     }
 }
 
