@@ -29,6 +29,9 @@ namespace SignalingMsg {
     constexpr const char* HEARTBEAT          = "heartbeat";
     constexpr const char* HEARTBEAT_ACK      = "heartbeat_ack";
     constexpr const char* USER_OFFLINE       = "user_offline";
+    constexpr const char* SDP_OFFER          = "sdp_offer";
+    constexpr const char* SDP_ANSWER         = "sdp_answer";
+    constexpr const char* ICE_CANDIDATE      = "ice_candidate";
 } // namespace SignalingMsg
 
 // Registered user entry in the server's user registry.
@@ -94,7 +97,9 @@ private:
     void handleConnectAccept(std::shared_ptr<TcpChannel> client, const std::string& json);
     void handleConnectReject(std::shared_ptr<TcpChannel> client, const std::string& json);
     void handleHeartbeat(std::shared_ptr<TcpChannel> client, const std::string& json);
-    void handleRelayData(std::shared_ptr<TcpChannel> client, const std::vector<uint8_t>& payload);
+    void handleSdpOffer(std::shared_ptr<TcpChannel> client, const std::string& json);
+    void handleSdpAnswer(std::shared_ptr<TcpChannel> client, const std::string& json);
+    void handleIceCandidate(std::shared_ptr<TcpChannel> client, const std::string& json);
 
     // Send a JSON message to a client via ControlHeader-prefixed TCP.
     void sendJson(TcpChannel& client, const std::string& json);

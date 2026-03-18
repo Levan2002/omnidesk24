@@ -150,34 +150,55 @@ void SignalingClient::onRegistered(RegisteredCallback cb) {
     registeredCb_ = std::move(cb);
 }
 
-void SignalingClient::onRelayData(RelayDataCallback cb) {
+void SignalingClient::onSdpOffer(SdpOfferCallback cb) {
     std::lock_guard<std::mutex> lock(callbackMutex_);
-    relayDataCb_ = std::move(cb);
+    sdpOfferCb_ = std::move(cb);
 }
 
-bool SignalingClient::sendRelayData(const UserID& targetId, MessageType innerType,
-                                     const void* data, uint32_t length) {
-    if (!connected_) return false;
+void SignalingClient::onSdpAnswer(SdpAnswerCallback cb) {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    sdpAnswerCb_ = std::move(cb);
+}
 
-    // Wire format: [8 bytes target ID][2 bytes inner type][N bytes payload]
-    std::vector<uint8_t> relayBuf(8 + 2 + length);
-    // Pad/truncate target ID to exactly 8 bytes
-    std::memset(relayBuf.data(), 0, 8);
-    std::memcpy(relayBuf.data(), targetId.id.data(),
-                std::min<size_t>(targetId.id.size(), 8));
-    writeU16(relayBuf.data() + 8, static_cast<uint16_t>(innerType));
-    if (length > 0 && data) {
-        std::memcpy(relayBuf.data() + 10, data, length);
-    }
+void SignalingClient::onIceCandidate(IceCandidateCallback cb) {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    iceCandidateCb_ = std::move(cb);
+}
 
-    std::lock_guard<std::mutex> lock(sendMutex_);
-    auto result = channel_.send(MessageType::RELAY_DATA,
-                                relayBuf.data(),
-                                static_cast<uint32_t>(relayBuf.size()));
-    LOG_INFO("sendRelayData: target=%s innerType=0x%04X len=%u result=%d",
-             targetId.id.c_str(), static_cast<int>(innerType), length,
-             static_cast<int>(result));
-    return result == SocketResult::OK;
+bool SignalingClient::sendSdpOffer(const UserID& targetId, const std::string& sdp) {
+    if (!connected_ || !registered_) return false;
+
+    std::string msg = jsonMakeObject({
+        {"type", "sdp_offer"},
+        {"to", targetId.id},
+        {"sdp", jsonEscape(sdp)}
+    });
+    return sendJson(msg);
+}
+
+bool SignalingClient::sendSdpAnswer(const UserID& targetId, const std::string& sdp) {
+    if (!connected_ || !registered_) return false;
+
+    std::string msg = jsonMakeObject({
+        {"type", "sdp_answer"},
+        {"to", targetId.id},
+        {"sdp", jsonEscape(sdp)}
+    });
+    return sendJson(msg);
+}
+
+bool SignalingClient::sendIceCandidate(const UserID& targetId, const std::string& candidate,
+                                        const std::string& sdpMid, int sdpMLineIndex) {
+    if (!connected_ || !registered_) return false;
+
+    std::string msg = jsonMakeObject({
+        {"type", "ice_candidate"},
+        {"to", targetId.id},
+        {"candidate", jsonEscape(candidate)},
+        {"sdpMid", sdpMid},
+        {"sdpMLineIndex", std::to_string(sdpMLineIndex)}
+    });
+    return sendJson(msg);
 }
 
 void SignalingClient::poll() {
@@ -228,31 +249,8 @@ void SignalingClient::receiveLoop() {
         auto result = channel_.recv(msgType, payload);
 
         if (result == SocketResult::OK) {
-            if (msgType == MessageType::RELAY_DATA) {
-                // Binary relay: [8 bytes source ID][2 bytes inner type][payload]
-                LOG_INFO("Client: received RELAY_DATA, %zu bytes", payload.size());
-                if (payload.size() >= 10) {
-                    std::string srcId(payload.begin(), payload.begin() + 8);
-                    // Trim null padding
-                    while (!srcId.empty() && srcId.back() == '\0') srcId.pop_back();
-                    MessageType innerType = static_cast<MessageType>(
-                        readU16(payload.data() + 8));
-                    std::vector<uint8_t> innerPayload(
-                        payload.begin() + 10, payload.end());
-
-                    LOG_INFO("Client: relay from=%s innerType=0x%04X innerLen=%zu cb=%s",
-                             srcId.c_str(), static_cast<int>(innerType),
-                             innerPayload.size(),
-                             relayDataCb_ ? "yes" : "no");
-                    std::lock_guard<std::mutex> lock(callbackMutex_);
-                    if (relayDataCb_) {
-                        relayDataCb_(UserID{srcId}, innerType, innerPayload);
-                    }
-                }
-            } else {
-                std::string json(payload.begin(), payload.end());
-                handleMessage(json);
-            }
+            std::string json(payload.begin(), payload.end());
+            handleMessage(json);
         } else if (result == SocketResult::DISCONNECTED) {
             connected_ = false;
             registered_ = false;
@@ -322,6 +320,35 @@ void SignalingClient::handleMessage(const std::string& json) {
 
         std::lock_guard<std::mutex> lock(callbackMutex_);
         if (userOfflineCb_) userOfflineCb_(targetId);
+    }
+    else if (type == "sdp_offer") {
+        SdpMessage msg;
+        msg.fromId = UserID{jsonGetString(json, "from")};
+        msg.sdp = jsonGetString(json, "sdp");
+        msg.type = "offer";
+
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (sdpOfferCb_) sdpOfferCb_(msg);
+    }
+    else if (type == "sdp_answer") {
+        SdpMessage msg;
+        msg.fromId = UserID{jsonGetString(json, "from")};
+        msg.sdp = jsonGetString(json, "sdp");
+        msg.type = "answer";
+
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (sdpAnswerCb_) sdpAnswerCb_(msg);
+    }
+    else if (type == "ice_candidate") {
+        IceCandidateMsg msg;
+        msg.fromId = UserID{jsonGetString(json, "from")};
+        msg.candidate = jsonGetString(json, "candidate");
+        msg.sdpMid = jsonGetString(json, "sdpMid");
+        std::string idxStr = jsonGetString(json, "sdpMLineIndex");
+        if (!idxStr.empty()) msg.sdpMLineIndex = std::stoi(idxStr);
+
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        if (iceCandidateCb_) iceCandidateCb_(msg);
     }
     else if (type == "heartbeat_ack") {
         // Heartbeat acknowledged, nothing to do
@@ -418,6 +445,22 @@ std::string SignalingClient::jsonMakeObject(
     }
     ss << "}";
     return ss.str();
+}
+
+std::string SignalingClient::jsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"':  out += "\\\""; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:   out += c;      break;
+        }
+    }
+    return out;
 }
 
 } // namespace omnidesk

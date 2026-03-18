@@ -35,6 +35,21 @@ struct ConnectionRejection {
     std::string reason;
 };
 
+// SDP offer or answer received from a remote peer (WebRTC signaling).
+struct SdpMessage {
+    UserID fromId;
+    std::string sdp;
+    std::string type;  // "offer" or "answer"
+};
+
+// ICE candidate received from a remote peer (WebRTC signaling).
+struct IceCandidateMsg {
+    UserID fromId;
+    std::string candidate;
+    std::string sdpMid;
+    int sdpMLineIndex = 0;
+};
+
 // SignalingClient: connects to a signaling server for user registration
 // and connection brokering. Sends heartbeats every 30 seconds.
 // Handles automatic reconnection on disconnect.
@@ -62,9 +77,9 @@ public:
     using UserOfflineCallback = std::function<void(const UserID& targetId)>;
     using DisconnectedCallback = std::function<void()>;
     using RegisteredCallback = std::function<void(bool success)>;
-    using RelayDataCallback = std::function<void(const UserID& fromId,
-                                                  MessageType innerType,
-                                                  const std::vector<uint8_t>& payload)>;
+    using SdpOfferCallback = std::function<void(const SdpMessage&)>;
+    using SdpAnswerCallback = std::function<void(const SdpMessage&)>;
+    using IceCandidateCallback = std::function<void(const IceCandidateMsg&)>;
 
     // Connect to the signaling server.
     // Tries each port in fallbackPorts in order until one succeeds.
@@ -88,10 +103,15 @@ public:
     // Reject an incoming connection request.
     bool rejectConnection(const UserID& fromId, const std::string& reason = "");
 
-    // Send data to a peer through the signaling server relay.
-    // Used when direct P2P connection is not possible.
-    bool sendRelayData(const UserID& targetId, MessageType innerType,
-                       const void* data, uint32_t length);
+    // WebRTC signaling: send SDP offer to a remote peer via the server.
+    bool sendSdpOffer(const UserID& targetId, const std::string& sdp);
+
+    // WebRTC signaling: send SDP answer to a remote peer via the server.
+    bool sendSdpAnswer(const UserID& targetId, const std::string& sdp);
+
+    // WebRTC signaling: send ICE candidate to a remote peer via the server.
+    bool sendIceCandidate(const UserID& targetId, const std::string& candidate,
+                          const std::string& sdpMid, int sdpMLineIndex);
 
     // Check if connected to the server.
     bool isConnected() const;
@@ -116,7 +136,9 @@ public:
     void onUserOffline(UserOfflineCallback cb);
     void onDisconnected(DisconnectedCallback cb);
     void onRegistered(RegisteredCallback cb);
-    void onRelayData(RelayDataCallback cb);
+    void onSdpOffer(SdpOfferCallback cb);
+    void onSdpAnswer(SdpAnswerCallback cb);
+    void onIceCandidate(IceCandidateCallback cb);
 
     // Poll for pending events (processes callbacks on the calling thread).
     // Call from main/UI thread each frame to dispatch queued callbacks safely.
@@ -139,6 +161,9 @@ private:
     static std::string jsonGetString(const std::string& json, const std::string& key);
     static std::string jsonMakeObject(
         const std::vector<std::pair<std::string, std::string>>& fields);
+
+    // Escape a string for safe embedding in a JSON value (handles \, ", \n, \r, \t).
+    static std::string jsonEscape(const std::string& s);
 
     // Attempt reconnection.
     bool tryReconnect();
@@ -165,7 +190,9 @@ private:
     UserOfflineCallback userOfflineCb_;
     DisconnectedCallback disconnectedCb_;
     RegisteredCallback registeredCb_;
-    RelayDataCallback relayDataCb_;
+    SdpOfferCallback sdpOfferCb_;
+    SdpAnswerCallback sdpAnswerCb_;
+    IceCandidateCallback iceCandidateCb_;
     std::mutex callbackMutex_;
 
     // Heartbeat tracking

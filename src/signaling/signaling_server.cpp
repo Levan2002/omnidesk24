@@ -115,14 +115,8 @@ void SignalingServer::serverLoop() {
                 auto result = client->recv(msgType, payload);
 
                 if (result == SocketResult::OK) {
-                    if (msgType == MessageType::RELAY_DATA) {
-                        LOG_INFO("Server: got RELAY_DATA from client, payload=%zu bytes",
-                                 payload.size());
-                        handleRelayData(client, payload);
-                    } else {
-                        std::string jsonStr(payload.begin(), payload.end());
-                        handleClientMessage(client, jsonStr);
-                    }
+                    std::string jsonStr(payload.begin(), payload.end());
+                    handleClientMessage(client, jsonStr);
                 } else if (result == SocketResult::DISCONNECTED) {
                     {
                         std::lock_guard<std::mutex> ulock(usersMutex_);
@@ -165,6 +159,12 @@ void SignalingServer::handleClientMessage(std::shared_ptr<TcpChannel> client,
         handleConnectReject(client, jsonStr);
     } else if (type == SignalingMsg::HEARTBEAT) {
         handleHeartbeat(client, jsonStr);
+    } else if (type == SignalingMsg::SDP_OFFER) {
+        handleSdpOffer(client, jsonStr);
+    } else if (type == SignalingMsg::SDP_ANSWER) {
+        handleSdpAnswer(client, jsonStr);
+    } else if (type == SignalingMsg::ICE_CANDIDATE) {
+        handleIceCandidate(client, jsonStr);
     }
 }
 
@@ -329,48 +329,95 @@ void SignalingServer::handleHeartbeat(std::shared_ptr<TcpChannel> client,
     sendJson(*client, resp);
 }
 
-void SignalingServer::handleRelayData(std::shared_ptr<TcpChannel> client,
-                                       const std::vector<uint8_t>& payload) {
-    // Wire format: [8 bytes target ID][2 bytes inner type][N bytes data]
-    if (payload.size() < 10) return;
+void SignalingServer::handleSdpOffer(std::shared_ptr<TcpChannel> client,
+                                      const std::string& json) {
+    std::string targetId = jsonGetString(json, "to");
+    if (targetId.empty()) return;
 
-    std::string targetId(payload.begin(), payload.begin() + 8);
-    while (!targetId.empty() && targetId.back() == '\0') targetId.pop_back();
+    // Identify the sender
+    UserID senderId = findUserByChannel(client.get());
+    if (!senderId.valid()) return;
 
-    // Find the sender's user ID
-    std::string senderId;
-    {
-        std::lock_guard<std::mutex> lock(usersMutex_);
-        for (const auto& [id, user] : users_) {
-            if (user.channel.get() == client.get()) {
-                senderId = id;
-                break;
-            }
-        }
-    }
-    if (senderId.empty()) {
-        LOG_WARN("Server: relay sender not found in users");
+    std::lock_guard<std::mutex> lock(usersMutex_);
+    auto it = users_.find(targetId);
+    if (it == users_.end() || !it->second.channel || !it->second.channel->isOpen()) {
+        // Target offline -- notify sender
+        std::string resp = jsonMakeObject({
+            {"type", SignalingMsg::USER_OFFLINE},
+            {"target_id", targetId}
+        });
+        sendJson(*client, resp);
         return;
     }
 
-    LOG_INFO("Server: relaying %zu bytes from %s to %s",
-             payload.size(), senderId.c_str(), targetId.c_str());
+    // Forward with "from" field replacing "to"
+    std::string sdp = jsonGetString(json, "sdp");
+    std::string fwd = jsonMakeObject({
+        {"type", SignalingMsg::SDP_OFFER},
+        {"from", senderId.id},
+        {"sdp", sdp}
+    });
+    sendJson(*it->second.channel, fwd);
+}
 
-    // Build forwarded payload: replace target ID with sender ID
-    std::vector<uint8_t> fwd(payload.size());
-    std::memset(fwd.data(), 0, 8);
-    std::memcpy(fwd.data(), senderId.data(),
-                std::min<size_t>(senderId.size(), 8));
-    std::memcpy(fwd.data() + 8, payload.data() + 8, payload.size() - 8);
+void SignalingServer::handleSdpAnswer(std::shared_ptr<TcpChannel> client,
+                                       const std::string& json) {
+    std::string targetId = jsonGetString(json, "to");
+    if (targetId.empty()) return;
 
-    // Forward to target
+    UserID senderId = findUserByChannel(client.get());
+    if (!senderId.valid()) return;
+
     std::lock_guard<std::mutex> lock(usersMutex_);
     auto it = users_.find(targetId);
-    if (it != users_.end() && it->second.channel && it->second.channel->isOpen()) {
-        it->second.channel->send(MessageType::RELAY_DATA,
-                                  fwd.data(),
-                                  static_cast<uint32_t>(fwd.size()));
+    if (it == users_.end() || !it->second.channel || !it->second.channel->isOpen()) {
+        std::string resp = jsonMakeObject({
+            {"type", SignalingMsg::USER_OFFLINE},
+            {"target_id", targetId}
+        });
+        sendJson(*client, resp);
+        return;
     }
+
+    std::string sdp = jsonGetString(json, "sdp");
+    std::string fwd = jsonMakeObject({
+        {"type", SignalingMsg::SDP_ANSWER},
+        {"from", senderId.id},
+        {"sdp", sdp}
+    });
+    sendJson(*it->second.channel, fwd);
+}
+
+void SignalingServer::handleIceCandidate(std::shared_ptr<TcpChannel> client,
+                                          const std::string& json) {
+    std::string targetId = jsonGetString(json, "to");
+    if (targetId.empty()) return;
+
+    UserID senderId = findUserByChannel(client.get());
+    if (!senderId.valid()) return;
+
+    std::lock_guard<std::mutex> lock(usersMutex_);
+    auto it = users_.find(targetId);
+    if (it == users_.end() || !it->second.channel || !it->second.channel->isOpen()) {
+        std::string resp = jsonMakeObject({
+            {"type", SignalingMsg::USER_OFFLINE},
+            {"target_id", targetId}
+        });
+        sendJson(*client, resp);
+        return;
+    }
+
+    std::string candidate = jsonGetString(json, "candidate");
+    std::string sdpMid = jsonGetString(json, "sdpMid");
+    std::string sdpMLineIndex = jsonGetString(json, "sdpMLineIndex");
+    std::string fwd = jsonMakeObject({
+        {"type", SignalingMsg::ICE_CANDIDATE},
+        {"from", senderId.id},
+        {"candidate", candidate},
+        {"sdpMid", sdpMid},
+        {"sdpMLineIndex", sdpMLineIndex}
+    });
+    sendJson(*it->second.channel, fwd);
 }
 
 void SignalingServer::sendJson(TcpChannel& client, const std::string& json) {
