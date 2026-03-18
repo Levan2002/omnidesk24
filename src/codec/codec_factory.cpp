@@ -89,15 +89,25 @@ bool CodecFactory::isBackendAvailable(CodecBackend backend) {
 
 std::vector<CodecBackend> CodecFactory::availableBackends() {
     std::vector<CodecBackend> result;
+
+    // Priority order on Windows: NVENC > MF (Intel QSV / AMD AMF) > OpenH264
+    // Priority order on Linux:   NVENC > VAAPI > OpenH264
     const CodecBackend all[] = {
         CodecBackend::NVENC,
+#ifdef __linux__
         CodecBackend::VAAPI,
+#endif
+#ifdef _WIN32
         CodecBackend::MF,
+#endif
         CodecBackend::OpenH264,
     };
     for (auto b : all) {
         if (isBackendAvailable(b)) {
+            LOG_INFO("Codec probe: %s — available", backendName(b));
             result.push_back(b);
+        } else {
+            LOG_DEBUG("Codec probe: %s — not available", backendName(b));
         }
     }
     return result;
@@ -115,31 +125,44 @@ const char* CodecFactory::backendName(CodecBackend backend) {
 
 std::unique_ptr<IEncoder> CodecFactory::createEncoder() {
     // Try backends in priority order.
+    // On Windows the effective order is: NVENC > MF (covers Intel QSV, AMD AMF,
+    // Intel Arc, and any other Windows HW encoder) > OpenH264 (software).
     const CodecBackend priority[] = {
         CodecBackend::NVENC,
+#ifdef __linux__
         CodecBackend::VAAPI,
+#endif
+#ifdef _WIN32
         CodecBackend::MF,
+#endif
         CodecBackend::OpenH264,
     };
 
     for (auto backend : priority) {
         if (isBackendAvailable(backend)) {
+            LOG_INFO("Trying encoder backend: %s", backendName(backend));
             auto encoder = createEncoder(backend);
             if (encoder) {
                 return encoder;
             }
+            LOG_INFO("Encoder backend %s: createEncoder returned null", backendName(backend));
         }
     }
 
     // Should never reach here since OpenH264 is always available.
+    LOG_ERROR("No encoder backend could be created");
     return nullptr;
 }
 
 std::unique_ptr<IDecoder> CodecFactory::createDecoder() {
     const CodecBackend priority[] = {
         CodecBackend::NVENC,
+#ifdef __linux__
         CodecBackend::VAAPI,
+#endif
+#ifdef _WIN32
         CodecBackend::MF,
+#endif
         CodecBackend::OpenH264,
     };
 

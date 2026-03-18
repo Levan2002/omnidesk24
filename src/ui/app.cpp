@@ -225,7 +225,7 @@ void App::run() {
         int displayW, displayH;
         glfwGetFramebufferSize(window_, &displayW, &displayH);
         glViewport(0, 0, displayW, displayH);
-        glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
+        glClearColor(0.09f, 0.09f, 0.11f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -342,19 +342,61 @@ void App::renderDashboard() {
 }
 
 void App::renderConnecting() {
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f,
-                                    ImGui::GetIO().DisplaySize.y * 0.5f),
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Full-screen dim background
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.50f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("##ConnBg", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoInputs);
+    ImGui::End();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+
+    // Connecting card
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(300, 120));
-    ImGui::Begin("Connecting", nullptr,
-                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoCollapse);
-    ImGui::Text("Connecting to %s...", connectIdInput_);
+    ImGui::SetNextWindowSize(ImVec2(320, 150));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 20));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.13f, 0.13f, 0.16f, 0.98f));
+
+    ImGui::Begin("##Connecting", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+
+    // Animated dots based on frame time
+    int dots = (static_cast<int>(ImGui::GetTime() * 2.0f) % 4);
+    const char* dotStr[] = {"", ".", "..", "..."};
+
+    ImGui::TextDisabled("Connecting to");
     ImGui::Spacing();
-    if (ImGui::Button("Cancel", ImVec2(-1, 0))) {
+
+    // Target ID
+    ImGui::SetWindowFontScale(1.3f);
+    ImGui::TextColored(ImVec4(0.26f, 0.52f, 0.96f, 1.0f), "%s%s", connectIdInput_, dotStr[dots]);
+    ImGui::SetWindowFontScale(1.0f);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    // Cancel button (full width, subdued)
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.20f, 0.24f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+    if (ImGui::Button("Cancel", ImVec2(-1, 34))) {
         state_ = AppState::DASHBOARD;
     }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+
     ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
 void App::renderSession() {

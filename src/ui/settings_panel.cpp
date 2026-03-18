@@ -1,19 +1,33 @@
 #include "ui/settings_panel.h"
+#include "ui/theme.h"
 #include <imgui.h>
 
 namespace omnidesk {
 
 void SettingsPanel::render(AppConfig& config, bool* open) {
-    ImGui::SetNextWindowSize(ImVec2(450, 500), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(480, 520), ImGuiCond_FirstUseEver);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(Theme::kCardR, Theme::kCardG, Theme::kCardB, 0.98f));
+
     if (!ImGui::Begin("Settings", open)) {
         ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
         return;
     }
 
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 5));
+
     if (ImGui::BeginTabBar("SettingsTabs")) {
-        // Video tab
+        // ======= Video Tab =======
         if (ImGui::BeginTabItem("Video")) {
-            ImGui::Text("Quality Preset:");
+            ImGui::Spacing();
+            ImGui::TextDisabled("Quality Preset");
+            ImGui::Spacing();
+
             static int preset = 2; // High
             ImGui::RadioButton("Low (500 kbps)", &preset, 0); ImGui::SameLine();
             ImGui::RadioButton("Medium (1 Mbps)", &preset, 1); ImGui::SameLine();
@@ -24,7 +38,13 @@ void SettingsPanel::render(AppConfig& config, bool* open) {
             config.encoder.targetBitrateBps = bitratePresets[preset];
 
             ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.22f, 0.22f, 0.27f, 0.35f));
             ImGui::Separator();
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+
+            ImGui::TextDisabled("Fine Tuning");
             ImGui::Spacing();
 
             int maxFps = static_cast<int>(config.encoder.maxFps);
@@ -39,6 +59,7 @@ void SettingsPanel::render(AppConfig& config, bool* open) {
             ImGui::SliderFloat("Max Bitrate (kbps)", &maxBitrateKbps, 500, 20000, "%.0f");
             config.encoder.maxBitrateBps = static_cast<uint32_t>(maxBitrateKbps * 1000);
 
+            ImGui::Spacing();
             ImGui::Checkbox("Screen Content Mode", &config.encoder.screenContent);
             ImGui::Checkbox("Adaptive Quantization", &config.encoder.adaptiveQuantization);
 
@@ -49,10 +70,12 @@ void SettingsPanel::render(AppConfig& config, bool* open) {
             ImGui::EndTabItem();
         }
 
-        // Network tab
+        // ======= Network Tab =======
         if (ImGui::BeginTabItem("Network")) {
             ImGui::Spacing();
-            ImGui::Text("FEC Strength:");
+            ImGui::TextDisabled("Forward Error Correction");
+            ImGui::Spacing();
+
             static int fecStrength = 1;
             ImGui::RadioButton("Off", &fecStrength, 0); ImGui::SameLine();
             ImGui::RadioButton("Low", &fecStrength, 1); ImGui::SameLine();
@@ -62,8 +85,12 @@ void SettingsPanel::render(AppConfig& config, bool* open) {
             ImGui::EndTabItem();
         }
 
-        // Display tab
+        // ======= Display Tab =======
         if (ImGui::BeginTabItem("Display")) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("Rendering");
+            ImGui::Spacing();
+
             static bool sharpening = true;
             ImGui::Checkbox("Text Sharpening (CAS)", &sharpening);
 
@@ -76,10 +103,23 @@ void SettingsPanel::render(AppConfig& config, bool* open) {
             ImGui::EndTabItem();
         }
 
-        // Advanced tab
+        // ======= Advanced Tab =======
         if (ImGui::BeginTabItem("Advanced")) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("Encoder");
+            ImGui::Spacing();
+
             static int encoderChoice = 0;
             ImGui::Combo("Encoder", &encoderChoice, "Auto\0Software (OpenH264)\0Hardware\0");
+
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.22f, 0.22f, 0.27f, 0.35f));
+            ImGui::Separator();
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+
+            ImGui::TextDisabled("Debug");
+            ImGui::Spacing();
 
             static int logLevel = 1;
             ImGui::Combo("Log Level", &logLevel, "Debug\0Info\0Warning\0Error\0");
@@ -97,7 +137,11 @@ void SettingsPanel::render(AppConfig& config, bool* open) {
         ImGui::EndTabBar();
     }
 
+    ImGui::PopStyleVar(2); // FrameRounding, FramePadding
+
     ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
 } // namespace omnidesk

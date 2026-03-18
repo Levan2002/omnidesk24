@@ -84,11 +84,12 @@ void ViewerSession::onVideoPacket(const EncodedPacket& packet) {
     float latency = static_cast<float>(now - packet.timestampUs) / 1000.0f;
     latencyMs_.store(latency);
 
-    // Queue decoded frame for GL upload on the main thread
+    // Queue decoded frame for GL upload on the main thread.
+    // Move the decoded frame to avoid an extra copy of the pixel buffer.
     {
         std::lock_guard<std::mutex> lock(frameMutex_);
         pendingFrame_ = std::move(decoded);
-        pendingDirtyRects_ = packet.dirtyRects;
+        pendingDirtyRects_ = packet.dirtyRects; // small vec, copy is fine
         hasNewFrame_ = true;
     }
 
@@ -114,11 +115,13 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
         if (!decoder_) {
             decoder_ = CodecFactory::createDecoder(CodecBackend::OpenH264);
             if (decoder_ && decoder_->init(0, 0)) {
+                decoderName_ = "OpenH264 (software)";
                 LOG_INFO("Using OpenH264 decoder");
             } else {
                 decoder_.reset();
                 decoder_ = CodecFactory::createDecoder(CodecBackend::MF);
                 if (decoder_ && decoder_->init(0, 0)) {
+                    decoderName_ = "Media Foundation (hardware)";
                     LOG_INFO("Using Media Foundation decoder");
                 } else {
                     decoder_.reset();
@@ -127,6 +130,7 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
                         LOG_ERROR("No working decoder found");
                         return;
                     }
+                    decoderName_ = "Auto";
                 }
             }
         }
@@ -212,6 +216,7 @@ ViewerStats ViewerSession::getStats() const {
     stats.decodeTimeMs = decodeTimeMs_.load();
     stats.width = frameWidth_;
     stats.height = frameHeight_;
+    stats.decoderName = decoderName_;
     return stats;
 }
 

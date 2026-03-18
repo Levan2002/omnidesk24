@@ -31,10 +31,13 @@ add_executable(omnidesk_integration_tests
     integration/test_capture_encode_pipeline.cpp
     integration/test_signaling_flow.cpp
     integration/test_data_channel_flow.cpp
+    integration/test_webrtc_e2e.cpp
 )
 
 target_link_libraries(omnidesk_integration_tests PRIVATE
     omnidesk_session
+    omnidesk_webrtc
+    omnidesk_codec
     GTest::gtest_main
 )
 

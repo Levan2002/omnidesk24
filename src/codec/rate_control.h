@@ -15,20 +15,21 @@ namespace omnidesk {
 class AdaptiveBitrateController {
 public:
     struct Config {
-        uint32_t initialBitrateBps  = 2000000;  // 2 Mbps
-        uint32_t minBitrateBps      = 200000;   // 200 Kbps
-        uint32_t maxBitrateBps      = 8000000;  // 8 Mbps
+        uint32_t initialBitrateBps  = 1500000;  // 1.5 Mbps (conservative start)
+        uint32_t minBitrateBps      = 150000;   // 150 Kbps floor
+        uint32_t maxBitrateBps      = 8000000;  // 8 Mbps ceiling
 
         // AIMD parameters
-        uint32_t additiveIncreaseBps = 100000;  // +100 Kbps per good report
-        float    multiplicativeDecrease = 0.7f;  // x0.7 on congestion
+        uint32_t additiveIncreaseBps = 80000;   // +80 Kbps per good report (gentle ramp)
+        float    multiplicativeDecrease = 0.65f; // x0.65 on congestion (fast drop)
 
         // Thresholds for congestion detection
-        float packetLossThreshold   = 2.0f;     // % loss to trigger decrease
-        float rttIncreaseThreshold  = 50.0f;    // ms RTT increase to trigger decrease
+        float packetLossThreshold   = 1.5f;     // % loss to trigger decrease
+        float rttIncreaseThreshold  = 40.0f;    // ms RTT increase to trigger decrease
+        float decodeTimeThreshold   = 20.0f;    // ms decode time spike (viewer overloaded)
 
         // Smoothing: minimum interval between bitrate changes
-        float minAdjustIntervalMs   = 500.0f;
+        float minAdjustIntervalMs   = 400.0f;
     };
 
     AdaptiveBitrateController();

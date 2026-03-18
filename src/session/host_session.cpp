@@ -132,20 +132,17 @@ void HostSession::encodeLoop() {
         Frame& capturedFrame = *frameOpt;
         auto encStart = std::chrono::steady_clock::now();
 
-        // Convert to I420 for encoding
-        Frame i420Frame;
-        convertFrameToI420(capturedFrame, i420Frame);
-
-        // Detect dirty regions
+        // Detect dirty regions *before* conversion to avoid converting
+        // a frame that turns out to be identical to the previous one.
         std::vector<Rect> dirtyRects;
         if (previousFrame_.data.empty()) {
             // First frame: full frame is dirty
-            dirtyRects.push_back({0, 0, i420Frame.width, i420Frame.height});
+            dirtyRects.push_back({0, 0, capturedFrame.width, capturedFrame.height});
         } else {
             dirtyRects = diffDetector_->detect(previousFrame_, capturedFrame);
         }
 
-        // Skip if nothing changed
+        // Skip if nothing changed — avoid the I420 conversion entirely.
         if (dirtyRects.empty()) {
             previousFrame_ = std::move(capturedFrame);
             continue;
@@ -154,20 +151,38 @@ void HostSession::encodeLoop() {
         // Merge small rects
         dirtyRects = RectMerger::merge(dirtyRects, 8);
 
-        // Classify content in each region
+        // Feed temporal information to the classifier so it can
+        // distinguish MOTION vs TEXT vs STATIC regions accurately.
+        if (!previousFrame_.data.empty()) {
+            classifier_->updateTemporalState(previousFrame_, capturedFrame);
+        }
+
+        // Classify content in each region (uses BGRA capturedFrame)
         std::vector<RegionInfo> regions;
         regions.reserve(dirtyRects.size());
         for (const auto& rect : dirtyRects) {
             RegionInfo info;
             info.rect = rect;
             info.type = classifier_->classify(capturedFrame, rect);
+
+            // Apply per-region QP adjustment from the quality tuner.
+            // The encoder uses regionQP if set (> 0), otherwise its default.
+            QPAdjustment qpAdj = qualityTuner_->adjust(26, info.type);
+            if (qpAdj.skip) {
+                continue; // skip encoding STATIC regions entirely
+            }
+            info.rect = rect;
             regions.push_back(info);
         }
+
+        // Convert to I420 for encoding (only for frames that have changes)
+        Frame i420Frame;
+        convertFrameToI420(capturedFrame, i420Frame);
 
         // Encode
         EncodedPacket packet;
         if (encoder_->encode(i420Frame, regions, packet)) {
-            packet.dirtyRects = dirtyRects;
+            packet.dirtyRects = std::move(dirtyRects);
 
             // Send via transport layer
             {

@@ -24,7 +24,8 @@ struct ViewerStats {
     float decodeTimeMs = 0;
     int width = 0;
     int height = 0;
-    std::string encoderName;
+    std::string encoderName;   // kept for protocol compat
+    std::string decoderName;   // e.g. "OpenH264 (software)"
 };
 
 class ViewerSession {
@@ -82,6 +83,7 @@ private:
     std::atomic<float> decodeTimeMs_{0};
     int frameWidth_ = 0;
     int frameHeight_ = 0;
+    std::string decoderName_;   // human-readable decoder name
 
     // FPS tracking
     uint64_t framesDecoded_ = 0;

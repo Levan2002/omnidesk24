@@ -40,10 +40,10 @@ private:
     // the previous frame in the given region.
     float computeTemporalActivity(const Rect& region) const;
 
-    // Thresholds
-    float edgeDensityThreshold_ = 0.15f;   // Above this → likely text
-    int colorCountThreshold_ = 64;          // Below this → likely text
-    float temporalActivityThreshold_ = 0.3f; // Above this → motion
+    // Thresholds (tuned for desktop/IDE/terminal text detection)
+    float edgeDensityThreshold_ = 0.12f;   // Above this -> likely text (lower catches anti-aliased text)
+    int colorCountThreshold_ = 80;          // Below this -> likely text (higher catches syntax-highlighted code)
+    float temporalActivityThreshold_ = 0.25f; // Above this -> motion (lower = more sensitive to motion)
 
     // Temporal state: per-block change flags from most recent updateTemporalState()
     std::vector<float> temporalActivity_;   // Per-block activity [0..1]
