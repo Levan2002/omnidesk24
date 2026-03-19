@@ -20,7 +20,9 @@ std::vector<Rect> RectMerger::merge(const std::vector<Rect>& rects, int maxRects
     while (static_cast<int>(working.size()) > maxRects) {
         auto [i, j] = findBestMergePair(working);
         working[i] = working[i].united(working[j]);
-        working.erase(working.begin() + j);
+        // O(1) removal: swap with last element and pop
+        working[j] = working.back();
+        working.pop_back();
     }
 
     return working;
@@ -70,26 +72,27 @@ std::vector<Rect> RectMerger::mergeOverlapping(const std::vector<Rect>& rects) {
     }
 
     // Iterative merging of overlapping pairs until stable.
+    auto touches = [](const Rect& a, const Rect& b) {
+        return a.x <= b.right() && a.right() >= b.x &&
+               a.y <= b.bottom() && a.bottom() >= b.y;
+    };
+
     bool merged = true;
     while (merged) {
         merged = false;
         for (size_t i = 0; i < result.size(); ++i) {
-            for (size_t j = i + 1; j < result.size(); ++j) {
-                // Merge overlapping AND adjacent (touching) rects.
-                // intersects() uses strict inequalities, so we also check
-                // for the adjacent case (edges exactly touching).
-                auto touches = [](const Rect& a, const Rect& b) {
-                    return a.x <= b.right() && a.right() >= b.x &&
-                           a.y <= b.bottom() && a.bottom() >= b.y;
-                };
+            for (size_t j = i + 1; j < result.size(); ) {
                 if (touches(result[i], result[j])) {
                     result[i] = result[i].united(result[j]);
-                    result.erase(result.begin() + static_cast<ptrdiff_t>(j));
+                    // O(1) removal: swap with last and pop
+                    result[j] = result.back();
+                    result.pop_back();
                     merged = true;
-                    break;
+                    // Don't increment j — recheck swapped element
+                } else {
+                    ++j;
                 }
             }
-            if (merged) break;
         }
     }
 

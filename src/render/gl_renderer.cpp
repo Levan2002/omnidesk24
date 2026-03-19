@@ -250,36 +250,43 @@ void GlRenderer::uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyR
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, frame.width / 2, frame.height / 2,
                         GL_RED, GL_UNSIGNED_BYTE, frame.plane(2));
     } else {
-        // Partial upload: only dirty regions
+        // Partial upload: only dirty regions.
+        // Use GL_UNPACK_ROW_LENGTH so we can upload each rect in a single
+        // glTexSubImage2D call per plane instead of one call per row.
+        glBindTexture(GL_TEXTURE_2D, yTexture_);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, frame.stride);
         for (const auto& r : dirtyRects) {
-            // Y plane
-            glBindTexture(GL_TEXTURE_2D, yTexture_);
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, frame.stride);
-            for (int y = r.y; y < r.bottom() && y < frame.height; ++y) {
-                glTexSubImage2D(GL_TEXTURE_2D, 0, r.x, y, r.width, 1,
-                                GL_RED, GL_UNSIGNED_BYTE,
-                                frame.plane(0) + y * frame.stride + r.x);
-            }
-
-            // U plane (half resolution)
-            int ux = r.x / 2, uy = r.y / 2, uw = r.width / 2, uh = r.height / 2;
-            glBindTexture(GL_TEXTURE_2D, uTexture_);
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, frame.stride / 2);
-            for (int y = uy; y < uy + uh && y < frame.height / 2; ++y) {
-                glTexSubImage2D(GL_TEXTURE_2D, 0, ux, y, uw, 1,
-                                GL_RED, GL_UNSIGNED_BYTE,
-                                frame.plane(1) + y * (frame.stride / 2) + ux);
-            }
-
-            // V plane
-            glBindTexture(GL_TEXTURE_2D, vTexture_);
-            for (int y = uy; y < uy + uh && y < frame.height / 2; ++y) {
-                glTexSubImage2D(GL_TEXTURE_2D, 0, ux, y, uw, 1,
-                                GL_RED, GL_UNSIGNED_BYTE,
-                                frame.plane(2) + y * (frame.stride / 2) + ux);
-            }
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            int h = std::min(r.height, frame.height - r.y);
+            if (h <= 0 || r.width <= 0) continue;
+            glTexSubImage2D(GL_TEXTURE_2D, 0, r.x, r.y, r.width, h,
+                            GL_RED, GL_UNSIGNED_BYTE,
+                            frame.plane(0) + r.y * frame.stride + r.x);
         }
+
+        int uvStride = frame.stride / 2;
+        glBindTexture(GL_TEXTURE_2D, uTexture_);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, uvStride);
+        for (const auto& r : dirtyRects) {
+            int ux = r.x / 2, uy = r.y / 2;
+            int uw = r.width / 2, uh = r.height / 2;
+            uh = std::min(uh, frame.height / 2 - uy);
+            if (uh <= 0 || uw <= 0) continue;
+            glTexSubImage2D(GL_TEXTURE_2D, 0, ux, uy, uw, uh,
+                            GL_RED, GL_UNSIGNED_BYTE,
+                            frame.plane(1) + uy * uvStride + ux);
+        }
+
+        glBindTexture(GL_TEXTURE_2D, vTexture_);
+        for (const auto& r : dirtyRects) {
+            int ux = r.x / 2, uy = r.y / 2;
+            int uw = r.width / 2, uh = r.height / 2;
+            uh = std::min(uh, frame.height / 2 - uy);
+            if (uh <= 0 || uw <= 0) continue;
+            glTexSubImage2D(GL_TEXTURE_2D, 0, ux, uy, uw, uh,
+                            GL_RED, GL_UNSIGNED_BYTE,
+                            frame.plane(2) + uy * uvStride + ux);
+        }
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     }
 }
 

@@ -228,13 +228,22 @@ void HostSession::encodeLoop() {
         // Encode
         EncodedPacket packet;
         if (encoder_->encode(*encodeFramePtr, regions_, packet)) {
+            // Skip sending empty packets (encoder skipped the frame)
+            if (packet.data.empty()) {
+                previousFrame_ = std::move(capturedFrame);
+                continue;
+            }
+
             packet.dirtyRects = std::move(dirtyRects_);
 
-            // Send via transport layer
+            // Send via transport layer — copy callback under lock,
+            // call outside to avoid blocking encode thread on network I/O
+            SendCallback cb;
             {
                 std::lock_guard<std::mutex> lock(sendCbMutex_);
-                if (sendCallback_) sendCallback_(packet);
+                cb = sendCallback_;
             }
+            if (cb) cb(packet);
 
             auto encEnd = std::chrono::steady_clock::now();
             float encMs = std::chrono::duration<float, std::milli>(encEnd - encStart).count();
@@ -292,6 +301,10 @@ void HostSession::encodeLoop() {
                         adaptiveQuality_->reset();
                     }
                 }
+
+                // Force full-frame dirty rect on next frame so diff
+                // detection doesn't compare mismatched resolutions.
+                previousFrame_.data.clear();
             }
         }
 

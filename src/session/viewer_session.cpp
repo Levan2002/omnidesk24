@@ -180,10 +180,19 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
             framesDecoded_ = 0;
             fpsStart_ = decEnd;
         }
+        consecutiveDecodeFailures_ = 0;
     } else {
         static int decFail = 0;
         if (decFail++ < 10)
             LOG_WARN("onNalUnit: decode FAILED #%d (%zu bytes)", decFail, size);
+
+        ++consecutiveDecodeFailures_;
+        if (consecutiveDecodeFailures_ >= kMaxConsecutiveFailuresBeforeReset) {
+            LOG_WARN("onNalUnit: %d consecutive failures, resetting decoder",
+                     consecutiveDecodeFailures_);
+            decoder_->reset();
+            consecutiveDecodeFailures_ = 0;
+        }
     }
     decoding_.store(false);
 }

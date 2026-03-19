@@ -386,15 +386,19 @@ bool DxgiCapture::processFrame(IDXGIResource* resource, Frame& frame) {
 
     frame.allocate(w, h, PixelFormat::BGRA);
 
-    // Copy row by row (source stride may differ from destination)
+    // Copy pixel data — single memcpy when strides match, row-by-row otherwise
     const uint8_t* src = static_cast<const uint8_t*>(mapped.pData);
     uint8_t* dst = frame.data.data();
     const int32_t rowBytes = w * 4;
 
-    for (int32_t row = 0; row < h; ++row) {
-        std::memcpy(dst + row * frame.stride,
-                     src + row * mapped.RowPitch,
-                     rowBytes);
+    if (static_cast<int32_t>(mapped.RowPitch) == frame.stride) {
+        std::memcpy(dst, src, static_cast<size_t>(frame.stride) * h);
+    } else {
+        for (int32_t row = 0; row < h; ++row) {
+            std::memcpy(dst + row * frame.stride,
+                         src + row * mapped.RowPitch,
+                         rowBytes);
+        }
     }
 
     context_->Unmap(stagingTex_.Get(), 0);

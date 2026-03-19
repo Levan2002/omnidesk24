@@ -125,8 +125,12 @@ CaptureResult X11Capture::captureFrame(Frame& frame) {
     const uint8_t* src = reinterpret_cast<const uint8_t*>(shmImage_->data);
     uint8_t* dst = frame.data.data();
 
-    for (int32_t row = 0; row < mon.bounds.height; ++row) {
-        std::memcpy(dst + row * dstStride, src + row * srcStride, rowBytes);
+    if (srcStride == dstStride) {
+        std::memcpy(dst, src, static_cast<size_t>(dstStride) * mon.bounds.height);
+    } else {
+        for (int32_t row = 0; row < mon.bounds.height; ++row) {
+            std::memcpy(dst + row * dstStride, src + row * srcStride, rowBytes);
+        }
     }
 
     // Build dirty-rect list

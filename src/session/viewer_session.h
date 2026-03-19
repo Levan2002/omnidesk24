@@ -89,6 +89,10 @@ private:
     // FPS tracking
     uint64_t framesDecoded_ = 0;
     std::chrono::steady_clock::time_point fpsStart_;
+
+    // Decode failure recovery
+    int consecutiveDecodeFailures_ = 0;
+    static constexpr int kMaxConsecutiveFailuresBeforeReset = 30;
 };
 
 } // namespace omnidesk
