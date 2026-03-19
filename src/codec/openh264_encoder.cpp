@@ -236,6 +236,62 @@ void OpenH264Encoder::updateBitrate(uint32_t bps) {
     }
 }
 
+bool OpenH264Encoder::reconfigure(int width, int height) {
+    if (!encoder_) return false;
+
+    // Use SetOption to change SVC encode params without full reinit.
+    // This avoids tearing down all internal encoder buffers.
+    SEncParamExt param;
+    std::memset(&param, 0, sizeof(param));
+    encoder_->GetDefaultParams(&param);
+
+    param.iPicWidth = width;
+    param.iPicHeight = height;
+    param.fMaxFrameRate = config_.maxFps;
+    param.iTargetBitrate = static_cast<int>(config_.targetBitrateBps);
+    param.iMaxBitrate = static_cast<int>(config_.maxBitrateBps);
+    param.iUsageType = SCREEN_CONTENT_REAL_TIME;
+    param.iRCMode = RC_BITRATE_MODE;
+    param.iEntropyCodingModeFlag = 0;
+    param.iNumRefFrame = 3;
+    param.bEnableFrameSkip = true;
+    param.iMultipleThreadIdc = 0;
+    param.bEnableBackgroundDetection = true;
+    param.bEnableAdaptiveQuant = config_.adaptiveQuantization;
+    param.bEnableSceneChangeDetect = true;
+    param.bEnableLongTermReference = true;
+    param.iLtrMarkPeriod = 30;
+    param.iComplexityMode = MEDIUM_COMPLEXITY;
+    param.iTemporalLayerNum = config_.temporalLayers;
+    param.iSpatialLayerNum = 1;
+    param.sSpatialLayers[0].iVideoWidth = width;
+    param.sSpatialLayers[0].iVideoHeight = height;
+    param.sSpatialLayers[0].fFrameRate = config_.maxFps;
+    param.sSpatialLayers[0].iSpatialBitrate = static_cast<int>(config_.targetBitrateBps);
+    param.sSpatialLayers[0].iMaxSpatialBitrate = static_cast<int>(config_.maxBitrateBps);
+    param.sSpatialLayers[0].uiProfileIdc = PRO_BASELINE;
+    param.sSpatialLayers[0].uiLevelIdc = LEVEL_3_1;
+    param.sSpatialLayers[0].sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
+    param.sSpatialLayers[0].sSliceArgument.uiSliceNum = 4;
+
+    if (config_.screenContent) {
+        param.iMinQp = 12;
+        param.iMaxQp = 40;
+    }
+
+    int ret = encoder_->SetOption(ENCODER_OPTION_SVC_ENCODE_PARAM_EXT, &param);
+    if (ret != cmResultSuccess) {
+        LOG_WARN("OpenH264: reconfigure %dx%d failed (SetOption returned %d)", width, height, ret);
+        return false;
+    }
+
+    config_.width = width;
+    config_.height = height;
+    keyFrameRequested_ = true;
+    LOG_INFO("OpenH264: reconfigured to %dx%d (no reinit)", width, height);
+    return true;
+}
+
 EncoderInfo OpenH264Encoder::getInfo() {
     EncoderInfo info;
     info.name = "OpenH264";

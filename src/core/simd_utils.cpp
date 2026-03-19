@@ -275,6 +275,93 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
                     yPlane, yStride, uPlane, uStride, vPlane, vStride);
 }
 
+// ---- BGRA → NV12 conversion ----
+
+static void bgraToNV12_scalar(const uint8_t* bgra, int width, int height, int bgraStride,
+                               uint8_t* yPlane, int yStride,
+                               uint8_t* uvPlane, int uvStride) {
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* row = bgra + y * bgraStride;
+        uint8_t* yRow = yPlane + y * yStride;
+
+        for (int x = 0; x < width; ++x) {
+            int b = row[x * 4 + 0];
+            int g = row[x * 4 + 1];
+            int r = row[x * 4 + 2];
+            int yVal = (77 * r + 150 * g + 29 * b + 128) >> 8;
+            yRow[x] = static_cast<uint8_t>(std::min(std::max(yVal, 0), 255));
+        }
+
+        if (y % 2 == 0 && y + 1 < height) {
+            const uint8_t* row2 = bgra + (y + 1) * bgraStride;
+            uint8_t* uvRow = uvPlane + (y / 2) * uvStride;
+
+            for (int x = 0; x < width - 1; x += 2) {
+                int b = (row[x*4+0] + row[(x+1)*4+0] + row2[x*4+0] + row2[(x+1)*4+0]) / 4;
+                int g = (row[x*4+1] + row[(x+1)*4+1] + row2[x*4+1] + row2[(x+1)*4+1]) / 4;
+                int r = (row[x*4+2] + row[(x+1)*4+2] + row2[x*4+2] + row2[(x+1)*4+2]) / 4;
+
+                int u = ((-43 * r - 85 * g + 128 * b + 128) >> 8) + 128;
+                int v = ((128 * r - 107 * g - 21 * b + 128) >> 8) + 128;
+                uvRow[x + 0] = static_cast<uint8_t>(std::min(std::max(u, 0), 255));
+                uvRow[x + 1] = static_cast<uint8_t>(std::min(std::max(v, 0), 255));
+            }
+        }
+    }
+}
+
+void bgraToNV12(const uint8_t* bgra, int width, int height, int bgraStride,
+                uint8_t* yPlane, int yStride,
+                uint8_t* uvPlane, int uvStride) {
+    static bool hasAVX2 = cpuSupportsAVX2();
+    if (hasAVX2) {
+        avx2::bgraToNV12(bgra, width, height, bgraStride,
+                         yPlane, yStride, uvPlane, uvStride);
+        return;
+    }
+    bgraToNV12_scalar(bgra, width, height, bgraStride,
+                      yPlane, yStride, uvPlane, uvStride);
+}
+
+void convertDirtyRegionsToNV12(const Frame& src, Frame& dst,
+                               const std::vector<Rect>& dirtyRects) {
+    if (src.format != PixelFormat::BGRA && src.format != PixelFormat::RGBA) {
+        LOG_ERROR("convertDirtyRegionsToNV12: unsupported source format");
+        return;
+    }
+
+    bool freshAlloc = dst.data.empty() ||
+                      dst.width != src.width || dst.height != src.height;
+    dst.allocate(src.width, src.height, PixelFormat::NV12);
+    dst.timestampUs = src.timestampUs;
+    dst.frameId = src.frameId;
+
+    if (freshAlloc) {
+        bgraToNV12(src.data.data(), src.width, src.height, src.stride,
+                   dst.plane(0), dst.stride,
+                   dst.plane(1), dst.stride);
+        return;
+    }
+
+    // Convert only dirty regions
+    for (const auto& rect : dirtyRects) {
+        int rx = rect.x & ~1;
+        int ry = rect.y & ~1;
+        int rr = std::min((rect.right() + 1) & ~1, static_cast<int>(src.width));
+        int rb = std::min((rect.bottom() + 1) & ~1, static_cast<int>(src.height));
+        int rw = rr - rx;
+        int rh = rb - ry;
+        if (rw <= 0 || rh <= 0) continue;
+
+        const uint8_t* regionBgra = src.data.data() + ry * src.stride + rx * 4;
+        uint8_t* regionY = dst.plane(0) + ry * dst.stride + rx;
+        uint8_t* regionUV = dst.plane(1) + (ry / 2) * dst.stride + rx;
+
+        bgraToNV12_scalar(regionBgra, rw, rh, src.stride,
+                          regionY, dst.stride, regionUV, dst.stride);
+    }
+}
+
 void bgraToI420Region(const uint8_t* bgra, int width, int height, int bgraStride,
                       uint8_t* yPlane, int yStride,
                       uint8_t* uPlane, int uStride,
@@ -384,6 +471,35 @@ bool blocksDiffer(const uint8_t* blockA, const uint8_t* blockB,
     return diffCount > threshold;
 }
 
+float blockChangeRatio(const uint8_t* blockA, const uint8_t* blockB,
+                       int stride, int blockWidth, int blockHeight, int tolerance) {
+#ifdef OMNIDESK_X86_64
+    static bool hasAVX2 = cpuSupportsAVX2();
+    if (hasAVX2) {
+        return avx2::blockChangeRatio(blockA, blockB, stride, blockWidth, blockHeight, tolerance);
+    }
+#endif
+    // Scalar fallback: count pixels where any RGB channel differs by > tolerance
+    int changedPixels = 0;
+    int totalPixels = blockWidth * blockHeight;
+    for (int y = 0; y < blockHeight; ++y) {
+        const uint8_t* a = blockA + y * stride;
+        const uint8_t* b = blockB + y * stride;
+        for (int x = 0; x < blockWidth; ++x) {
+            int off = x * 4;
+            bool differs = false;
+            for (int c = 0; c < 3; ++c) {
+                if (std::abs(static_cast<int>(a[off + c]) - static_cast<int>(b[off + c])) > tolerance) {
+                    differs = true;
+                    break;
+                }
+            }
+            if (differs) ++changedPixels;
+        }
+    }
+    return totalPixels > 0 ? static_cast<float>(changedPixels) / static_cast<float>(totalPixels) : 0.0f;
+}
+
 uint64_t blockHash(const uint8_t* block, int stride, int blockSize) {
     // FNV-1a hash over pixel data
     uint64_t hash = 14695981039346656037ULL;
@@ -399,10 +515,9 @@ uint64_t blockHash(const uint8_t* block, int stride, int blockSize) {
 
 // ---- I420 bilinear resize ----
 
-// Resize a single plane using bilinear interpolation.
-static void resizePlane(const uint8_t* src, int srcW, int srcH, int srcStride,
-                        uint8_t* dst, int dstW, int dstH, int dstStride) {
-    // Fixed-point scale factors (16.16 format)
+// Scalar fallback: resize a single plane using bilinear interpolation.
+static void resizePlane_scalar(const uint8_t* src, int srcW, int srcH, int srcStride,
+                               uint8_t* dst, int dstW, int dstH, int dstStride) {
     const uint32_t xRatio = ((static_cast<uint32_t>(srcW) << 16) / dstW);
     const uint32_t yRatio = ((static_cast<uint32_t>(srcH) << 16) / dstH);
 
@@ -410,8 +525,6 @@ static void resizePlane(const uint8_t* src, int srcW, int srcH, int srcStride,
         uint32_t srcY = y * yRatio;
         int sy = static_cast<int>(srcY >> 16);
         int yFrac = static_cast<int>(srcY & 0xFFFF);
-
-        // Clamp source row to valid range
         int sy1 = std::min(sy + 1, srcH - 1);
 
         const uint8_t* row0 = src + sy * srcStride;
@@ -424,13 +537,9 @@ static void resizePlane(const uint8_t* src, int srcW, int srcH, int srcStride,
             int xFrac = static_cast<int>(srcX & 0xFFFF);
             int sx1 = std::min(sx + 1, srcW - 1);
 
-            // Bilinear interpolation of 4 source pixels
-            int a = row0[sx];
-            int b = row0[sx1];
-            int c = row1[sx];
-            int d = row1[sx1];
+            int a = row0[sx], b = row0[sx1];
+            int c = row1[sx], d = row1[sx1];
 
-            // Interpolate horizontally, then vertically
             int top = a + (((b - a) * xFrac + 0x8000) >> 16);
             int bot = c + (((d - c) * xFrac + 0x8000) >> 16);
             int val = top + (((bot - top) * yFrac + 0x8000) >> 16);
@@ -438,6 +547,130 @@ static void resizePlane(const uint8_t* src, int srcW, int srcH, int srcStride,
             dstRow[x] = static_cast<uint8_t>(std::min(std::max(val, 0), 255));
         }
     }
+}
+
+#ifdef OMNIDESK_X86_64
+// SSE2 compat: _mm_mullo_epi32 is SSE4.1, emulate for SSE2
+static inline __m128i _mm_mullo_epi32_compat(__m128i a, __m128i b) {
+    __m128i tmp1 = _mm_mul_epu32(a, b);
+    __m128i tmp2 = _mm_mul_epu32(_mm_srli_si128(a, 4), _mm_srli_si128(b, 4));
+    return _mm_unpacklo_epi32(
+        _mm_shuffle_epi32(tmp1, _MM_SHUFFLE(0, 0, 2, 0)),
+        _mm_shuffle_epi32(tmp2, _MM_SHUFFLE(0, 0, 2, 0))
+    );
+}
+
+// SSE2-accelerated bilinear resize: processes 4 destination pixels per iteration.
+// Uses 16-bit fixed-point (8.8) for the interpolation fractions so that
+// multiply + shift fits in 16-bit SSE2 arithmetic.
+static void resizePlane_sse2(const uint8_t* src, int srcW, int srcH, int srcStride,
+                              uint8_t* dst, int dstW, int dstH, int dstStride) {
+    const uint32_t xRatio = ((static_cast<uint32_t>(srcW) << 16) / dstW);
+    const uint32_t yRatio = ((static_cast<uint32_t>(srcH) << 16) / dstH);
+    const __m128i zero = _mm_setzero_si128();
+
+    for (int y = 0; y < dstH; ++y) {
+        uint32_t srcY = y * yRatio;
+        int sy = static_cast<int>(srcY >> 16);
+        // Downscale yFrac from 16.16 to 8.8 for 16-bit arithmetic
+        int yFrac8 = static_cast<int>((srcY & 0xFFFF) >> 8);
+        int sy1 = std::min(sy + 1, srcH - 1);
+
+        const uint8_t* row0 = src + sy * srcStride;
+        const uint8_t* row1 = src + sy1 * srcStride;
+        uint8_t* dstRow = dst + y * dstStride;
+
+        __m128i yf = _mm_set1_epi16(static_cast<int16_t>(yFrac8));
+        __m128i inv_yf = _mm_set1_epi16(static_cast<int16_t>(256 - yFrac8));
+
+        int x = 0;
+        for (; x + 3 < dstW; x += 4) {
+            // Compute source X positions for 4 destination pixels
+            alignas(16) int16_t xfArr[4];
+            alignas(16) uint8_t aArr[4], bArr[4], cArr[4], dArr[4];
+
+            for (int i = 0; i < 4; ++i) {
+                uint32_t srcX = (x + i) * xRatio;
+                int sx = static_cast<int>(srcX >> 16);
+                int sx1 = std::min(sx + 1, srcW - 1);
+                xfArr[i] = static_cast<int16_t>((srcX & 0xFFFF) >> 8);
+                aArr[i] = row0[sx];
+                bArr[i] = row0[sx1];
+                cArr[i] = row1[sx];
+                dArr[i] = row1[sx1];
+            }
+
+            // Load into SSE registers as 16-bit
+            __m128i a16 = _mm_unpacklo_epi8(_mm_cvtsi32_si128(*reinterpret_cast<int32_t*>(aArr)), zero);
+            __m128i b16 = _mm_unpacklo_epi8(_mm_cvtsi32_si128(*reinterpret_cast<int32_t*>(bArr)), zero);
+            __m128i c16 = _mm_unpacklo_epi8(_mm_cvtsi32_si128(*reinterpret_cast<int32_t*>(cArr)), zero);
+            __m128i d16 = _mm_unpacklo_epi8(_mm_cvtsi32_si128(*reinterpret_cast<int32_t*>(dArr)), zero);
+
+            __m128i xf = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(xfArr));
+            __m128i inv_xf = _mm_sub_epi16(_mm_set1_epi16(256), xf);
+
+            // Horizontal interpolation: top = a*(256-xf) + b*xf
+            __m128i top = _mm_add_epi16(
+                _mm_mullo_epi16(a16, inv_xf),
+                _mm_mullo_epi16(b16, xf)
+            );
+            // bot = c*(256-xf) + d*xf
+            __m128i bot = _mm_add_epi16(
+                _mm_mullo_epi16(c16, inv_xf),
+                _mm_mullo_epi16(d16, xf)
+            );
+
+            // Vertical interpolation: val = top*(256-yf) + bot*yf, then >> 16
+            // top and bot are in 8.8 format, multiply by yf (8-bit) gives 8.16
+            // Use 32-bit arithmetic to avoid overflow
+            __m128i top_lo = _mm_unpacklo_epi16(top, zero);
+            __m128i bot_lo = _mm_unpacklo_epi16(bot, zero);
+            __m128i inv_yf32 = _mm_unpacklo_epi16(inv_yf, zero);
+            __m128i yf32 = _mm_unpacklo_epi16(yf, zero);
+
+            __m128i val32 = _mm_add_epi32(
+                _mm_mullo_epi32_compat(top_lo, inv_yf32),
+                _mm_mullo_epi32_compat(bot_lo, yf32)
+            );
+            // Result is in 8.16 format, shift right by 16
+            val32 = _mm_srli_epi32(val32, 16);
+
+            // Pack 32→16→8 and store 4 bytes
+            __m128i val16 = _mm_packs_epi32(val32, zero);
+            __m128i val8 = _mm_packus_epi16(val16, zero);
+
+            *reinterpret_cast<uint32_t*>(dstRow + x) =
+                static_cast<uint32_t>(_mm_cvtsi128_si32(val8));
+        }
+
+        // Scalar remainder
+        for (; x < dstW; ++x) {
+            uint32_t srcX = x * xRatio;
+            int sx = static_cast<int>(srcX >> 16);
+            int xFrac = static_cast<int>(srcX & 0xFFFF);
+            int sx1 = std::min(sx + 1, srcW - 1);
+
+            int a = row0[sx], b = row0[sx1];
+            int c = row1[sx], d = row1[sx1];
+
+            int top = a + (((b - a) * xFrac + 0x8000) >> 16);
+            int bot = c + (((d - c) * xFrac + 0x8000) >> 16);
+            int val = top + (((bot - top) * yFrac8 * 256 + 0x8000) >> 16);
+
+            dstRow[x] = static_cast<uint8_t>(std::min(std::max(val, 0), 255));
+        }
+    }
+}
+
+#endif
+
+static void resizePlane(const uint8_t* src, int srcW, int srcH, int srcStride,
+                        uint8_t* dst, int dstW, int dstH, int dstStride) {
+#ifdef OMNIDESK_X86_64
+    resizePlane_sse2(src, srcW, srcH, srcStride, dst, dstW, dstH, dstStride);
+#else
+    resizePlane_scalar(src, srcW, srcH, srcStride, dst, dstW, dstH, dstStride);
+#endif
 }
 
 void resizeI420(const Frame& src, Frame& dst, int dstWidth, int dstHeight) {

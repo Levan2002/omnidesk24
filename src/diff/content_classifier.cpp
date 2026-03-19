@@ -62,31 +62,10 @@ void ContentClassifier::updateTemporalState(const Frame& prev, const Frame& curr
             const int bw = std::min(kTemporalBlockSize, static_cast<int>(prev.width) - px);
             const int bh = std::min(kTemporalBlockSize, static_cast<int>(prev.height) - py);
 
-            int changedPixels = 0;
-            const int totalPixels = bw * bh;
-
-            for (int y = 0; y < bh; ++y) {
-                const uint8_t* rowA = prev.data.data() + (py + y) * prev.stride + px * bytesPerPixel;
-                const uint8_t* rowB = curr.data.data() + (py + y) * curr.stride + px * bytesPerPixel;
-                for (int x = 0; x < bw * bytesPerPixel; x += bytesPerPixel) {
-                    // Compare pixel values with small tolerance.
-                    bool differs = false;
-                    for (int c = 0; c < 3; ++c) { // Compare RGB, skip alpha
-                        if (std::abs(static_cast<int>(rowA[x + c]) -
-                                     static_cast<int>(rowB[x + c])) > 4) {
-                            differs = true;
-                            break;
-                        }
-                    }
-                    if (differs) {
-                        ++changedPixels;
-                    }
-                }
-            }
-
-            float blockActivity = (totalPixels > 0)
-                ? static_cast<float>(changedPixels) / static_cast<float>(totalPixels)
-                : 0.0f;
+            // Use SIMD-accelerated block comparison instead of scalar per-pixel loop.
+            const uint8_t* ptrA = prev.data.data() + py * prev.stride + px * bytesPerPixel;
+            const uint8_t* ptrB = curr.data.data() + py * curr.stride + px * bytesPerPixel;
+            float blockActivity = blockChangeRatio(ptrA, ptrB, prev.stride, bw, bh, 4);
 
             temporalActivity_[static_cast<size_t>(by) * temporalBlocksX_ + bx] = blockActivity;
         }

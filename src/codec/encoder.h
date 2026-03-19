@@ -14,6 +14,11 @@ public:
     virtual void requestKeyFrame() = 0;
     virtual void updateBitrate(uint32_t bps) = 0;
     virtual EncoderInfo getInfo() = 0;
+
+    // Lightweight resolution change without full encoder teardown/rebuild.
+    // Returns true if the encoder was successfully reconfigured in-place.
+    // Default returns false — callers fall back to init().
+    virtual bool reconfigure(int /*width*/, int /*height*/) { return false; }
 };
 
 } // namespace omnidesk

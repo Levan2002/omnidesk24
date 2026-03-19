@@ -119,8 +119,11 @@ void HostSession::captureLoop() {
             frame.frameId = ++frameCounter_;
             frame.timestampUs = Clock::nowUs();
 
-            // Push to ring buffer (drops frame if encoder is behind)
-            if (!captureBuffer_.push(std::move(frame))) {
+            // Push frame + platform dirty rects to ring buffer
+            CapturedFrameEntry entry;
+            entry.frame = std::move(frame);
+            entry.platformDirtyRects = std::move(result.dirtyRects);
+            if (!captureBuffer_.push(std::move(entry))) {
                 // Encoder is behind — skip this frame
             }
         }
@@ -138,27 +141,32 @@ void HostSession::encodeLoop() {
     auto fpsStart = std::chrono::steady_clock::now();
 
     while (running_) {
-        auto frameOpt = captureBuffer_.pop();
-        if (!frameOpt) {
+        auto entryOpt = captureBuffer_.pop();
+        if (!entryOpt) {
             std::this_thread::sleep_for(std::chrono::microseconds(500));
             continue;
         }
 
-        Frame& capturedFrame = *frameOpt;
+        CapturedFrameEntry& entry = *entryOpt;
+        Frame& capturedFrame = entry.frame;
         auto encStart = std::chrono::steady_clock::now();
 
         // Detect dirty regions *before* conversion to avoid converting
         // a frame that turns out to be identical to the previous one.
-        std::vector<Rect> dirtyRects;
+        // Use platform-provided damage rects when available (XDamage/DXGI)
+        // to skip the expensive SIMD block-comparison diff entirely.
+        dirtyRects_.clear();
         if (previousFrame_.data.empty()) {
-            // First frame: full frame is dirty
-            dirtyRects.push_back({0, 0, capturedFrame.width, capturedFrame.height});
+            dirtyRects_.push_back({0, 0, capturedFrame.width, capturedFrame.height});
+        } else if (!entry.platformDirtyRects.empty()) {
+            // Platform already told us what changed — skip SIMD diff
+            dirtyRects_ = std::move(entry.platformDirtyRects);
         } else {
-            dirtyRects = diffDetector_->detect(previousFrame_, capturedFrame);
+            dirtyRects_ = diffDetector_->detect(previousFrame_, capturedFrame);
         }
 
         // Skip if nothing changed — avoid the I420 conversion entirely.
-        if (dirtyRects.empty()) {
+        if (dirtyRects_.empty()) {
             ++consecutiveStaticFrames_;
             previousFrame_ = std::move(capturedFrame);
             continue;
@@ -166,7 +174,7 @@ void HostSession::encodeLoop() {
         consecutiveStaticFrames_ = 0;
 
         // Merge small rects
-        dirtyRects = RectMerger::merge(dirtyRects, 8);
+        dirtyRects_ = RectMerger::merge(dirtyRects_, 8);
 
         // Feed temporal information to the classifier so it can
         // distinguish MOTION vs TEXT vs STATIC regions accurately.
@@ -175,43 +183,39 @@ void HostSession::encodeLoop() {
         }
 
         // Classify content in each region (uses BGRA capturedFrame)
-        std::vector<RegionInfo> regions;
-        regions.reserve(dirtyRects.size());
-        for (const auto& rect : dirtyRects) {
+        regions_.clear();
+        regions_.reserve(dirtyRects_.size());
+        for (const auto& rect : dirtyRects_) {
             RegionInfo info;
             info.rect = rect;
             info.type = classifier_->classify(capturedFrame, rect);
 
             // Apply per-region QP adjustment from the quality tuner.
-            // The encoder uses regionQP if set (> 0), otherwise its default.
             QPAdjustment qpAdj = qualityTuner_->adjust(26, info.type);
             if (qpAdj.skip) {
                 continue; // skip encoding STATIC regions entirely
             }
             info.rect = rect;
-            regions.push_back(info);
+            regions_.push_back(info);
         }
 
         // Adaptive FPS: count motion vs non-motion regions
         int motionCount = 0;
-        for (const auto& r : regions) {
+        for (const auto& r : regions_) {
             if (r.type == ContentType::MOTION) ++motionCount;
         }
-        float motionFrac = regions.empty() ? 0.0f
-                           : static_cast<float>(motionCount) / regions.size();
-        // Smooth the ratio — used by adaptive quality controller for FPS decisions
+        float motionFrac = regions_.empty() ? 0.0f
+                           : static_cast<float>(motionCount) / regions_.size();
         motionRatio_ = motionRatio_ * 0.7f + motionFrac * 0.3f;
 
         // Convert only dirty regions to I420 — unchanged areas keep their
         // previous I420 data, saving significant CPU on typical desktop
         // workloads where only a small portion of the screen changes.
-        convertDirtyRegionsToI420(capturedFrame, reusableI420Frame_, dirtyRects);
+        convertDirtyRegionsToI420(capturedFrame, reusableI420Frame_, dirtyRects_);
         Frame& i420Frame = reusableI420Frame_;
 
         // Adaptive resolution: resize I420 frame if encode resolution
         // differs from native capture resolution.
-        // NOTE: we pass i420Frame by const-ref (no move) to preserve the
-        // reusable buffer. When no resize is needed, encode directly from it.
         Frame resizedFrame;
         Frame* encodeFramePtr;
         if (encodeWidth_ != i420Frame.width || encodeHeight_ != i420Frame.height) {
@@ -223,8 +227,8 @@ void HostSession::encodeLoop() {
 
         // Encode
         EncodedPacket packet;
-        if (encoder_->encode(*encodeFramePtr, regions, packet)) {
-            packet.dirtyRects = std::move(dirtyRects);
+        if (encoder_->encode(*encodeFramePtr, regions_, packet)) {
+            packet.dirtyRects = std::move(dirtyRects_);
 
             // Send via transport layer
             {
@@ -236,13 +240,11 @@ void HostSession::encodeLoop() {
             float encMs = std::chrono::duration<float, std::milli>(encEnd - encStart).count();
             encodeTimeMs_.store(encMs);
 
-            // Update bitrate stats
             float bits = static_cast<float>(packet.data.size()) * 8.0f;
             currentBitrate_.store(bits / 1000000.0f);
 
             ++encodedFrames;
 
-            // FPS calculation
             auto now = std::chrono::steady_clock::now();
             float elapsed = std::chrono::duration<float>(now - fpsStart).count();
             if (elapsed >= 1.0f) {
@@ -251,14 +253,12 @@ void HostSession::encodeLoop() {
                 fpsStart = now;
             }
 
-            // --- Adaptive quality: update after encoding ---
+            // --- Adaptive quality ---
             float frameBudgetMs = 1000.0f / currentTargetFps_.load();
             uint32_t currentBitrateBps = static_cast<uint32_t>(
                 currentBitrate_.load() * 1000000.0f);
 
             adaptiveQuality_->update(encMs, frameBudgetMs, currentBitrateBps, motionRatio_);
-
-            // Drive capture/encode rate from adaptive quality controller
             currentTargetFps_.store(adaptiveQuality_->targetFps());
 
             if (adaptiveQuality_->resolutionChanged()) {
@@ -274,22 +274,23 @@ void HostSession::encodeLoop() {
                 frameWidth_ = newW;
                 frameHeight_ = newH;
 
-                // Reconfigure encoder with new resolution
                 encoderConfig_.width = newW;
                 encoderConfig_.height = newH;
                 encoder_->updateBitrate(adaptiveQuality_->targetBitrate());
 
-                // Reinitialize encoder for new resolution
-                if (!encoder_->init(encoderConfig_)) {
-                    LOG_ERROR("Failed to reinit encoder at %dx%d, reverting", newW, newH);
-                    encoderConfig_.width = nativeWidth_;
-                    encoderConfig_.height = nativeHeight_;
-                    encodeWidth_ = nativeWidth_;
-                    encodeHeight_ = nativeHeight_;
-                    frameWidth_ = nativeWidth_;
-                    frameHeight_ = nativeHeight_;
-                    encoder_->init(encoderConfig_);
-                    adaptiveQuality_->reset();
+                // Try lightweight reconfigure first, fall back to full reinit
+                if (!encoder_->reconfigure(newW, newH)) {
+                    if (!encoder_->init(encoderConfig_)) {
+                        LOG_ERROR("Failed to reinit encoder at %dx%d, reverting", newW, newH);
+                        encoderConfig_.width = nativeWidth_;
+                        encoderConfig_.height = nativeHeight_;
+                        encodeWidth_ = nativeWidth_;
+                        encodeHeight_ = nativeHeight_;
+                        frameWidth_ = nativeWidth_;
+                        frameHeight_ = nativeHeight_;
+                        encoder_->init(encoderConfig_);
+                        adaptiveQuality_->reset();
+                    }
                 }
             }
         }

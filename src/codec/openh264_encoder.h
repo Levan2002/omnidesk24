@@ -33,6 +33,7 @@ public:
     void requestKeyFrame() override;
     void updateBitrate(uint32_t bps) override;
     EncoderInfo getInfo() override;
+    bool reconfigure(int width, int height) override;
 
 private:
     void destroy();

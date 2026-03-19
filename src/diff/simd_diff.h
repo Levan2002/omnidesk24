@@ -22,18 +22,19 @@ public:
 private:
     static constexpr int kBlockSize = 16;
 
-    // Build a bitmask of changed blocks. Each bit in the returned vector
-    // corresponds to one block (row-major order). true = changed.
-    std::vector<bool> buildChangeMask(const Frame& prev, const Frame& curr,
-                                      int blocksX, int blocksY) const;
+    // Build a bitmask of changed blocks into mask_ member.
+    void buildChangeMask(const Frame& prev, const Frame& curr,
+                         int blocksX, int blocksY);
 
-    // Convert the bitmask of changed blocks into a list of rectangles.
-    // Each set bit becomes a rect covering its 16x16 block, clipped to frame bounds.
-    std::vector<Rect> maskToRects(const std::vector<bool>& mask,
-                                  int blocksX, int blocksY,
-                                  int frameWidth, int frameHeight) const;
+    // Convert mask_ into rects_ member.
+    void maskToRects(int blocksX, int blocksY,
+                     int frameWidth, int frameHeight);
 
     int threshold_ = 8;
+
+    // Pre-allocated buffers reused every frame to avoid heap allocation on the hot path.
+    std::vector<bool> mask_;
+    std::vector<Rect> rects_;
 };
 
 } // namespace omnidesk

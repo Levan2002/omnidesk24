@@ -29,6 +29,14 @@ struct HostStats {
     std::string encoderName;
 };
 
+// Carries a captured frame and its platform-provided dirty rects through the
+// capture→encode ring buffer so the encode loop can skip SIMD diff detection
+// when the platform already told us what changed.
+struct CapturedFrameEntry {
+    Frame frame;
+    std::vector<Rect> platformDirtyRects;  // from XDamage / DXGI
+};
+
 class HostSession {
 public:
     HostSession();
@@ -61,12 +69,16 @@ private:
     std::unique_ptr<AdaptiveBitrateController> rateController_;
     std::unique_ptr<AdaptiveQuality> adaptiveQuality_;
 
-    RingBuffer<Frame, 4> captureBuffer_;
+    RingBuffer<CapturedFrameEntry, 4> captureBuffer_;
     Frame previousFrame_;
 
     // Reusable I420 frame to avoid allocating a new vector every encode cycle.
     // convertFrameToI420 will reuse the buffer if dimensions match.
     Frame reusableI420Frame_;
+
+    // Pre-allocated vectors reused every frame to avoid hot-path heap allocations.
+    std::vector<Rect> dirtyRects_;
+    std::vector<RegionInfo> regions_;
 
     std::thread captureThread_;
     std::thread encodeThread_;

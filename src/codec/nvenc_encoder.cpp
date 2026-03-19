@@ -682,6 +682,58 @@ void NvencEncoder::updateBitrate(uint32_t bps) {
     }
 }
 
+bool NvencEncoder::reconfigure(int width, int height) {
+    if (!initialized_ || !encoder_ || !fn_) return false;
+
+    NV_ENC_PRESET_CONFIG presetCfg{};
+    presetCfg.version = (12 << 4) | 0;
+    presetCfg.presetCfg.version = (12 << 4) | 0;
+    fn_->api.nvEncGetEncodePresetConfigEx(
+        encoder_, NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P1_GUID,
+        NV_ENC_TUNING_INFO_LOW_LATENCY, &presetCfg);
+
+    NV_ENC_CONFIG encCfg = presetCfg.presetCfg;
+    encCfg.rcParams.averageBitRate = config_.targetBitrateBps;
+    encCfg.rcParams.maxBitRate = config_.maxBitrateBps;
+    encCfg.rcParams.vbvBufferSize = config_.targetBitrateBps /
+        static_cast<uint32_t>(std::max(config_.maxFps, 1.0f));
+
+    NV_ENC_INITIALIZE_PARAMS initParams{};
+    initParams.version = (12 << 4) | 0;
+    initParams.encodeGUID = NV_ENC_CODEC_H264_GUID;
+    initParams.presetGUID = NV_ENC_PRESET_P1_GUID;
+    initParams.encodeWidth = width;
+    initParams.encodeHeight = height;
+    initParams.darWidth = width;
+    initParams.darHeight = height;
+    initParams.frameRateNum = static_cast<uint32_t>(config_.maxFps);
+    initParams.frameRateDen = 1;
+    initParams.enablePTD = 1;
+    initParams.encodeConfig = &encCfg;
+    initParams.maxEncodeWidth = config_.width;  // max from initial init
+    initParams.maxEncodeHeight = config_.height;
+    initParams.tuningInfo = NV_ENC_TUNING_INFO_LOW_LATENCY;
+
+    NV_ENC_RECONFIGURE_PARAMS reconfig{};
+    reconfig.version = (12 << 4) | 0;
+    reconfig.reInitEncodeParams = initParams;
+    reconfig.resetEncoder = 1;
+    reconfig.forceIDR = 1;
+
+    NVENCSTATUS st = fn_->api.nvEncReconfigureEncoder(encoder_, &reconfig);
+    if (st != NV_ENC_SUCCESS) {
+        LOG_WARN("NVENC: reconfigure to %dx%d failed: %d", width, height, st);
+        return false;
+    }
+
+    config_.width = width;
+    config_.height = height;
+    nv12Pitch_ = width;
+    nv12Buffer_.resize(static_cast<size_t>(nv12Pitch_) * height * 3 / 2);
+    LOG_INFO("NVENC: reconfigured to %dx%d (no reinit)", width, height);
+    return true;
+}
+
 EncoderInfo NvencEncoder::getInfo() {
     EncoderInfo info;
     info.name = "NVENC H.264";
