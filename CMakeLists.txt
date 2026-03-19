@@ -296,3 +296,6 @@ option(OMNIDESK_BUILD_BENCHMARKS "Build benchmarks" OFF)
 if(OMNIDESK_BUILD_BENCHMARKS AND NOT OMNIDESK_SERVER_ONLY)
     add_subdirectory(tests/benchmark)
 endif()
+
+# Codec analyzer tool
+option(OMNIDESK_BUILD_ANALYZER "Build codec analyzer tool" OFF)

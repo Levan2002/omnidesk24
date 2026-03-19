@@ -89,6 +89,20 @@ void AdaptiveQuality::update(float encodeTimeMs, float frameBudgetMs,
         wantUp = true;
     }
 
+    // Track bandwidth stability for smarter upscale decisions
+    if (currentBitrateBps >= config_.upscaleBitrateBps &&
+        encodeLoad < config_.downscaleThreshold) {
+        ++bandwidthStableFrames_;
+    } else {
+        bandwidthStableFrames_ = 0;
+    }
+
+    // Reduce upscale hysteresis when bandwidth has been stable for 2+ seconds
+    int effectiveUpscaleFrameCount = config_.upscaleFrameCount;
+    if (bandwidthStableFrames_ >= kBandwidthStableThreshold) {
+        effectiveUpscaleFrameCount = std::max(config_.upscaleFrameCount * 2 / 3, 10);
+    }
+
     // Hysteresis: require consecutive frames before changing level
     if (wantDown && currentLevel_ < Config::kMaxLevels - 1) {
         ++downscaleCounter_;
@@ -105,10 +119,11 @@ void AdaptiveQuality::update(float encodeTimeMs, float frameBudgetMs,
         ++upscaleCounter_;
         downscaleCounter_ = 0;
 
-        if (upscaleCounter_ >= config_.upscaleFrameCount) {
+        if (upscaleCounter_ >= effectiveUpscaleFrameCount) {
             --currentLevel_;
             upscaleCounter_ = 0;
             resolutionChanged_ = true;
+            bandwidthStableFrames_ = 0;  // Reset after transition
             LOG_INFO("AdaptiveQuality: upscale to level %d (load=%.0f%%, bitrate=%u bps)",
                      currentLevel_, encodeLoad * 100.0f, currentBitrateBps);
         }

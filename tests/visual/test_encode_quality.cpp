@@ -7,6 +7,7 @@
 #include "core/types.h"
 #include "codec/openh264_encoder.h"
 #include "codec/openh264_decoder.h"
+#include "analyzer/quality_metrics.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,6 +19,9 @@
 
 namespace omnidesk {
 namespace {
+
+using metrics::computePSNR_Y;
+using metrics::computeSSIM_Y;
 
 // ---------------------------------------------------------------------------
 // Color conversion: BGRA -> I420 (BT.601)
@@ -62,88 +66,17 @@ Frame bgraToI420(const Frame& bgra) {
 }
 
 // ---------------------------------------------------------------------------
-// Quality metrics
-// ---------------------------------------------------------------------------
-
-// Compute PSNR between two I420 frames (Y-plane only).
-double computePSNR_Y(const Frame& a, const Frame& b) {
-    if (a.width != b.width || a.height != b.height) return 0.0;
-    int w = a.width;
-    int h = a.height;
-    double mse = 0.0;
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            int diff = static_cast<int>(a.plane(0)[y * a.stride + x]) -
-                       static_cast<int>(b.plane(0)[y * b.stride + x]);
-            mse += diff * diff;
-        }
-    }
-    mse /= static_cast<double>(w) * h;
-    if (mse < 1e-10) return 100.0;
-    return 10.0 * std::log10(255.0 * 255.0 / mse);
-}
-
-// Compute simplified SSIM on Y-plane using an 8x8 block-based approach.
-// Returns the mean SSIM across all 8x8 blocks.
-double computeSSIM_Y(const Frame& a, const Frame& b) {
-    if (a.width != b.width || a.height != b.height) return 0.0;
-    int w = a.width;
-    int h = a.height;
-
-    constexpr int kBlockSize = 8;
-    constexpr double C1 = 6.5025;    // (0.01 * 255)^2
-    constexpr double C2 = 58.5225;   // (0.03 * 255)^2
-
-    double ssimSum = 0.0;
-    int blockCount = 0;
-
-    for (int by = 0; by + kBlockSize <= h; by += kBlockSize) {
-        for (int bx = 0; bx + kBlockSize <= w; bx += kBlockSize) {
-            double sumA = 0, sumB = 0;
-            double sumA2 = 0, sumB2 = 0, sumAB = 0;
-
-            for (int dy = 0; dy < kBlockSize; ++dy) {
-                for (int dx = 0; dx < kBlockSize; ++dx) {
-                    double pa = a.plane(0)[(by + dy) * a.stride + (bx + dx)];
-                    double pb = b.plane(0)[(by + dy) * b.stride + (bx + dx)];
-                    sumA += pa;
-                    sumB += pb;
-                    sumA2 += pa * pa;
-                    sumB2 += pb * pb;
-                    sumAB += pa * pb;
-                }
-            }
-
-            double n = kBlockSize * kBlockSize;
-            double muA = sumA / n;
-            double muB = sumB / n;
-            double sigA2 = sumA2 / n - muA * muA;
-            double sigB2 = sumB2 / n - muB * muB;
-            double sigAB = sumAB / n - muA * muB;
-
-            double num = (2.0 * muA * muB + C1) * (2.0 * sigAB + C2);
-            double den = (muA * muA + muB * muB + C1) * (sigA2 + sigB2 + C2);
-            ssimSum += num / den;
-            ++blockCount;
-        }
-    }
-
-    return (blockCount > 0) ? ssimSum / blockCount : 0.0;
-}
-
-// ---------------------------------------------------------------------------
 // Synthetic test frame generators (BGRA)
+// These patterns are calibrated for the test thresholds below.
+// The shared generators in tests/content/generate_test_frames.h are used
+// by the codec_analyzer tool for broader testing.
 // ---------------------------------------------------------------------------
 
 // "text_document": white background with black horizontal lines simulating text.
 Frame makeTextDocument(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
-    // Fill white.
     std::memset(f.data.data(), 255, f.data.size());
-
-    // Draw horizontal "text lines": 2px tall black lines with 16px spacing,
-    // offset from left/right by 40px to simulate margins.
     int margin = 40;
     int lineSpacing = 16;
     int lineHeight = 2;
@@ -151,17 +84,16 @@ Frame makeTextDocument(int w, int h) {
         for (int dy = 0; dy < lineHeight; ++dy) {
             uint8_t* row = f.data.data() + (y + dy) * f.stride;
             for (int x = margin; x < w - margin; ++x) {
-                row[x * 4 + 0] = 0;   // B
-                row[x * 4 + 1] = 0;   // G
-                row[x * 4 + 2] = 0;   // R
-                row[x * 4 + 3] = 255; // A
+                row[x * 4 + 0] = 0;
+                row[x * 4 + 1] = 0;
+                row[x * 4 + 2] = 0;
+                row[x * 4 + 3] = 255;
             }
         }
     }
     return f;
 }
 
-// "gradient": smooth color gradient (R increases left-to-right, G top-to-bottom).
 Frame makeGradient(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
@@ -170,8 +102,7 @@ Frame makeGradient(int w, int h) {
         for (int x = 0; x < w; ++x) {
             uint8_t r = static_cast<uint8_t>(255 * x / std::max(w - 1, 1));
             uint8_t g = static_cast<uint8_t>(255 * y / std::max(h - 1, 1));
-            uint8_t b = 128;
-            row[x * 4 + 0] = b;
+            row[x * 4 + 0] = 128;
             row[x * 4 + 1] = g;
             row[x * 4 + 2] = r;
             row[x * 4 + 3] = 255;
@@ -180,7 +111,6 @@ Frame makeGradient(int w, int h) {
     return f;
 }
 
-// "checkerboard": alternating black/white 8x8 blocks (high spatial frequency).
 Frame makeCheckerboard(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
@@ -199,94 +129,59 @@ Frame makeCheckerboard(int w, int h) {
     return f;
 }
 
-// "solid": uniform mid-gray (trivial case, should compress near-losslessly).
 Frame makeSolid(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
     for (int y = 0; y < h; ++y) {
         uint8_t* row = f.data.data() + y * f.stride;
         for (int x = 0; x < w; ++x) {
-            row[x * 4 + 0] = 128;  // B
-            row[x * 4 + 1] = 128;  // G
-            row[x * 4 + 2] = 128;  // R
-            row[x * 4 + 3] = 255;  // A
+            row[x * 4 + 0] = 128;
+            row[x * 4 + 1] = 128;
+            row[x * 4 + 2] = 128;
+            row[x * 4 + 3] = 255;
         }
     }
     return f;
 }
 
-// "code_editor": dark background with colored syntax-highlighted "code" lines.
 Frame makeCodeEditor(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
-    // Dark background (#1e1e1e)
     for (size_t i = 0; i < f.data.size(); i += 4) {
-        f.data[i + 0] = 30;   // B
-        f.data[i + 1] = 30;   // G
-        f.data[i + 2] = 30;   // R
-        f.data[i + 3] = 255;  // A
+        f.data[i + 0] = 30; f.data[i + 1] = 30; f.data[i + 2] = 30; f.data[i + 3] = 255;
     }
-
-    // Syntax-highlighted "code" lines with varying colors
     struct SyntaxColor { uint8_t r, g, b; };
     const SyntaxColor colors[] = {
-        {86, 156, 214},   // blue (keywords)
-        {78, 201, 176},   // teal (types)
-        {206, 145, 120},  // orange (strings)
-        {181, 206, 168},  // green (comments)
-        {220, 220, 220},  // white (identifiers)
-        {197, 134, 192},  // purple (operators)
+        {86,156,214}, {78,201,176}, {206,145,120}, {181,206,168}, {220,220,220}, {197,134,192},
     };
-
-    int lineHeight = 20;
-    int margin = 60;  // line number gutter
-    int charWidth = 9;
+    int lineHeight = 20, margin = 60, charWidth = 9;
     for (int lineIdx = 0; lineIdx * lineHeight + 10 < h - 10; ++lineIdx) {
-        int y0 = lineIdx * lineHeight + 10;
-        // Each line has varying "tokens" with different colors
-        int x = margin;
-        int tokenIdx = 0;
+        int y0 = lineIdx * lineHeight + 10, x = margin, tokenIdx = 0;
         while (x < w - 20) {
-            // Token length varies pseudo-randomly
             int tokenLen = 3 + ((lineIdx * 7 + tokenIdx * 13) % 12);
             const auto& color = colors[(lineIdx + tokenIdx) % 6];
-            // Draw token as colored rectangle (simulating text)
-            for (int dy = 3; dy < lineHeight - 3; ++dy) {
-                for (int dx = 0; dx < tokenLen * charWidth && x + dx < w - 20; ++dx) {
-                    // Simulate character shapes: draw if pixel is "on"
-                    bool isChar = ((dx / charWidth * 3 + dy) % 4 != 0);
-                    if (isChar) {
+            for (int dy = 3; dy < lineHeight - 3; ++dy)
+                for (int dx = 0; dx < tokenLen * charWidth && x + dx < w - 20; ++dx)
+                    if (((dx / charWidth * 3 + dy) % 4 != 0)) {
                         uint8_t* row = f.data.data() + (y0 + dy) * f.stride;
-                        row[(x + dx) * 4 + 0] = color.b;
-                        row[(x + dx) * 4 + 1] = color.g;
-                        row[(x + dx) * 4 + 2] = color.r;
+                        row[(x+dx)*4+0] = color.b; row[(x+dx)*4+1] = color.g; row[(x+dx)*4+2] = color.r;
                     }
-                }
-            }
-            x += tokenLen * charWidth + charWidth; // space between tokens
-            tokenIdx++;
-            if (tokenIdx > 8) break; // max tokens per line
+            x += tokenLen * charWidth + charWidth; tokenIdx++;
+            if (tokenIdx > 8) break;
         }
     }
-
-    // Line numbers (gray, left gutter)
     for (int lineIdx = 0; lineIdx * lineHeight + 10 < h - 10; ++lineIdx) {
         int y0 = lineIdx * lineHeight + 10;
-        for (int dy = 4; dy < lineHeight - 4; ++dy) {
-            for (int dx = 20; dx < 50; ++dx) {
+        for (int dy = 4; dy < lineHeight - 4; ++dy)
+            for (int dx = 20; dx < 50; ++dx)
                 if (((dx + dy) * 17 + lineIdx) % 3 == 0) {
                     uint8_t* row = f.data.data() + (y0 + dy) * f.stride;
-                    row[dx * 4 + 0] = 100;
-                    row[dx * 4 + 1] = 100;
-                    row[dx * 4 + 2] = 100;
+                    row[dx*4+0] = 100; row[dx*4+1] = 100; row[dx*4+2] = 100;
                 }
-            }
-        }
     }
     return f;
 }
 
-// "high_motion": random noise simulating worst-case high-motion content.
 Frame makeHighMotion(int w, int h, uint32_t seed = 42) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
@@ -295,122 +190,87 @@ Frame makeHighMotion(int w, int h, uint32_t seed = 42) {
         uint8_t* row = f.data.data() + y * f.stride;
         for (int x = 0; x < w; ++x) {
             state = state * 1664525u + 1013904223u;
-            row[x * 4 + 0] = static_cast<uint8_t>(state);
-            row[x * 4 + 1] = static_cast<uint8_t>(state >> 8);
-            row[x * 4 + 2] = static_cast<uint8_t>(state >> 16);
-            row[x * 4 + 3] = 255;
+            row[x*4+0] = static_cast<uint8_t>(state);
+            row[x*4+1] = static_cast<uint8_t>(state >> 8);
+            row[x*4+2] = static_cast<uint8_t>(state >> 16);
+            row[x*4+3] = 255;
         }
     }
     return f;
 }
 
-// "mixed_content": top half is text on white, bottom half is colorful motion-like
-// pattern (simulating a browser with text and embedded video).
 Frame makeMixedContent(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
-
-    // Top half: white background with "text" lines
     int halfH = h / 2;
     std::memset(f.data.data(), 255, static_cast<size_t>(f.stride) * halfH);
-    for (int y = 20; y < halfH - 10; y += 14) {
+    for (int y = 20; y < halfH - 10; y += 14)
         for (int dy = 0; dy < 2 && y + dy < halfH; ++dy) {
             uint8_t* row = f.data.data() + (y + dy) * f.stride;
-            for (int x = 30; x < w - 30; ++x) {
-                // Pseudo-random character pattern
+            for (int x = 30; x < w - 30; ++x)
                 if (((x / 6 + y / 3) * 31337) % 5 != 0) {
-                    row[x * 4 + 0] = 20;
-                    row[x * 4 + 1] = 20;
-                    row[x * 4 + 2] = 20;
+                    row[x*4+0] = 20; row[x*4+1] = 20; row[x*4+2] = 20;
                 }
-            }
         }
-    }
-
-    // Bottom half: smooth-ish color pattern (not pure noise, but varying)
     for (int y = halfH; y < h; ++y) {
         uint8_t* row = f.data.data() + y * f.stride;
         for (int x = 0; x < w; ++x) {
             int t = (y - halfH) * 3 + x;
-            row[x * 4 + 0] = static_cast<uint8_t>((t * 7) & 0xFF);
-            row[x * 4 + 1] = static_cast<uint8_t>((t * 13 + 50) & 0xFF);
-            row[x * 4 + 2] = static_cast<uint8_t>((t * 3 + 100) & 0xFF);
-            row[x * 4 + 3] = 255;
+            row[x*4+0] = static_cast<uint8_t>((t*7) & 0xFF);
+            row[x*4+1] = static_cast<uint8_t>((t*13+50) & 0xFF);
+            row[x*4+2] = static_cast<uint8_t>((t*3+100) & 0xFF);
+            row[x*4+3] = 255;
         }
     }
     return f;
 }
 
-// "color_bars": SMPTE-like test pattern (standard encoder sanity check).
 Frame makeColorBars(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
-    // B, G, R for each bar
     const uint8_t bars[][3] = {
-        {255, 255, 255}, {0, 255, 255}, {255, 255, 0}, {0, 255, 0},
-        {255, 0, 255},   {0, 0, 255},   {255, 0, 0},   {0, 0, 0}
+        {255,255,255}, {0,255,255}, {255,255,0}, {0,255,0},
+        {255,0,255}, {0,0,255}, {255,0,0}, {0,0,0}
     };
     int barWidth = w / 8;
     for (int y = 0; y < h; ++y) {
         uint8_t* row = f.data.data() + y * f.stride;
         for (int x = 0; x < w; ++x) {
             int bar = std::min(x / std::max(barWidth, 1), 7);
-            row[x * 4 + 0] = bars[bar][0];
-            row[x * 4 + 1] = bars[bar][1];
-            row[x * 4 + 2] = bars[bar][2];
-            row[x * 4 + 3] = 255;
+            row[x*4+0] = bars[bar][0]; row[x*4+1] = bars[bar][1];
+            row[x*4+2] = bars[bar][2]; row[x*4+3] = 255;
         }
     }
     return f;
 }
 
-// "static_desktop": simulated desktop with icons, taskbar, and wallpaper
-// gradient — mostly static, should compress to very few bytes.
 Frame makeStaticDesktop(int w, int h) {
     Frame f;
     f.allocate(w, h, PixelFormat::BGRA);
-
-    // Blue gradient wallpaper
     for (int y = 0; y < h; ++y) {
         uint8_t* row = f.data.data() + y * f.stride;
         uint8_t blue = static_cast<uint8_t>(180 + 50 * y / std::max(h - 1, 1));
         uint8_t green = static_cast<uint8_t>(80 + 30 * y / std::max(h - 1, 1));
         for (int x = 0; x < w; ++x) {
-            row[x * 4 + 0] = blue;
-            row[x * 4 + 1] = green;
-            row[x * 4 + 2] = 40;
-            row[x * 4 + 3] = 255;
+            row[x*4+0] = blue; row[x*4+1] = green; row[x*4+2] = 40; row[x*4+3] = 255;
         }
     }
-
-    // Taskbar (dark gray strip at bottom)
     for (int y = h - 48; y < h; ++y) {
         uint8_t* row = f.data.data() + y * f.stride;
-        for (int x = 0; x < w; ++x) {
-            row[x * 4 + 0] = 40;
-            row[x * 4 + 1] = 40;
-            row[x * 4 + 2] = 40;
-        }
+        for (int x = 0; x < w; ++x) { row[x*4+0] = 40; row[x*4+1] = 40; row[x*4+2] = 40; }
     }
-
-    // Desktop "icons" (small colored squares)
-    for (int iconRow = 0; iconRow < 5; ++iconRow) {
+    for (int iconRow = 0; iconRow < 5; ++iconRow)
         for (int iconCol = 0; iconCol < 2; ++iconCol) {
-            int ix = 40 + iconCol * 90;
-            int iy = 40 + iconRow * 100;
+            int ix = 40 + iconCol * 90, iy = 40 + iconRow * 100;
             uint8_t cr = static_cast<uint8_t>(60 + iconRow * 40);
             uint8_t cg = static_cast<uint8_t>(100 + iconCol * 80);
-            uint8_t cb = 180;
             for (int dy = 0; dy < 48 && iy + dy < h - 48; ++dy) {
                 uint8_t* row = f.data.data() + (iy + dy) * f.stride;
                 for (int dx = 0; dx < 48 && ix + dx < w; ++dx) {
-                    row[(ix + dx) * 4 + 0] = cb;
-                    row[(ix + dx) * 4 + 1] = cg;
-                    row[(ix + dx) * 4 + 2] = cr;
+                    row[(ix+dx)*4+0] = 180; row[(ix+dx)*4+1] = cg; row[(ix+dx)*4+2] = cr;
                 }
             }
         }
-    }
     return f;
 }
 

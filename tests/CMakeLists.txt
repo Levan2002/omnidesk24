@@ -48,6 +48,8 @@ add_executable(omnidesk_visual_tests
     visual/test_encode_quality.cpp
 )
 
+target_include_directories(omnidesk_visual_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 target_link_libraries(omnidesk_visual_tests PRIVATE
     omnidesk_codec
     omnidesk_diff
@@ -55,3 +57,8 @@ target_link_libraries(omnidesk_visual_tests PRIVATE
 )
 
 gtest_discover_tests(omnidesk_visual_tests)
+
+# Codec analyzer tool
+if(OMNIDESK_BUILD_ANALYZER)
+    add_subdirectory(analyzer)
+endif()

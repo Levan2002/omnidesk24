@@ -106,6 +106,14 @@ bool OpenH264Encoder::init(const EncoderConfig& cfg) {
     param.sSpatialLayers[0].sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
     param.sSpatialLayers[0].sSliceArgument.uiSliceNum = 4;
 
+    // Tighter QP range for screen content: avoid excessive quality loss (QP > 40
+    // destroys text readability) while keeping a reasonable floor (QP 12 prevents
+    // wasteful bitrate spikes on simple content).
+    if (cfg.screenContent) {
+        param.iMinQp = 12;
+        param.iMaxQp = 40;
+    }
+
     if (encoder_->InitializeExt(&param) != cmResultSuccess) {
         destroy();
         return false;

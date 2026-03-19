@@ -91,6 +91,10 @@ private:
     std::atomic<float> currentTargetFps_{30.0f};
     float motionRatio_ = 0.0f;  // 0.0 = all static, 1.0 = all motion
 
+    // Static frame skip: track consecutive static frames to suppress
+    // unnecessary keyframe requests and reduce idle CPU usage.
+    uint32_t consecutiveStaticFrames_ = 0;
+
     SendCallback sendCallback_;
     std::mutex sendCbMutex_;
 };

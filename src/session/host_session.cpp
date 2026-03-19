@@ -159,9 +159,11 @@ void HostSession::encodeLoop() {
 
         // Skip if nothing changed — avoid the I420 conversion entirely.
         if (dirtyRects.empty()) {
+            ++consecutiveStaticFrames_;
             previousFrame_ = std::move(capturedFrame);
             continue;
         }
+        consecutiveStaticFrames_ = 0;
 
         // Merge small rects
         dirtyRects = RectMerger::merge(dirtyRects, 8);

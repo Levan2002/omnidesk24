@@ -46,7 +46,8 @@ public:
         int upscaleFrameCount   = 30;  // ~1s at 30fps (slower upscale)
 
         // Number of resolution steps (including native)
-        static constexpr int kMaxLevels = 3;
+        // Level 0: native, Level 1: 83%, Level 2: 67%, Level 3: 50%
+        static constexpr int kMaxLevels = 4;
     };
 
     AdaptiveQuality();
@@ -95,9 +96,13 @@ private:
     int downscaleCounter_ = 0;
     int upscaleCounter_   = 0;
 
-    // Scale factors for each level (fraction of native, in 0.01 increments)
-    // Level 0: 100%, Level 1: 83%, Level 2: 67%
-    static constexpr float kScaleFactors[Config::kMaxLevels] = {1.00f, 0.833f, 0.667f};
+    // Scale factors for each level (fraction of native)
+    // Level 0: 100%, Level 1: 83%, Level 2: 67%, Level 3: 50%
+    static constexpr float kScaleFactors[Config::kMaxLevels] = {1.00f, 0.833f, 0.667f, 0.500f};
+
+    // Bandwidth stability tracking for smarter upscale hysteresis
+    int bandwidthStableFrames_ = 0;
+    static constexpr int kBandwidthStableThreshold = 60;  // ~2s at 30fps
 };
 
 } // namespace omnidesk
