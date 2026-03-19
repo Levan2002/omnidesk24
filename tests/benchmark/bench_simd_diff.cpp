@@ -22,9 +22,9 @@ static void BM_SIMDDiff_1080p_NoDiff(benchmark::State& state) {
     std::memset(prev.data.data(), 128, prev.data.size());
     std::memset(curr.data.data(), 128, curr.data.size());
 
-    SimdDiff diff;
+    SIMDDiffDetector diff;
     for (auto _ : state) {
-        auto rects = diff.detectDirtyBlocks(prev, curr);
+        auto rects = diff.detect(prev, curr);
         benchmark::DoNotOptimize(rects);
     }
     state.SetItemsProcessed(state.iterations() * 1920LL * 1080);
@@ -37,9 +37,9 @@ static void BM_SIMDDiff_1080p_FullDiff(benchmark::State& state) {
     std::memset(prev.data.data(), 0, prev.data.size());
     std::memset(curr.data.data(), 255, curr.data.size());
 
-    SimdDiff diff;
+    SIMDDiffDetector diff;
     for (auto _ : state) {
-        auto rects = diff.detectDirtyBlocks(prev, curr);
+        auto rects = diff.detect(prev, curr);
         benchmark::DoNotOptimize(rects);
     }
     state.SetItemsProcessed(state.iterations() * 1920LL * 1080);
@@ -57,9 +57,9 @@ static void BM_SIMDDiff_4K_SparseDiff(benchmark::State& state) {
         std::memset(curr.data.data() + y * curr.stride + 500 * 4, 200, 32 * 4);
     }
 
-    SimdDiff diff;
+    SIMDDiffDetector diff;
     for (auto _ : state) {
-        auto rects = diff.detectDirtyBlocks(prev, curr);
+        auto rects = diff.detect(prev, curr);
         benchmark::DoNotOptimize(rects);
     }
     state.SetItemsProcessed(state.iterations() * 3840LL * 2160);

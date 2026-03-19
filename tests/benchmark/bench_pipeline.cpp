@@ -9,11 +9,10 @@ using namespace omnidesk;
 
 static void BM_RingBuffer_PushPop(benchmark::State& state) {
     RingBuffer<int, 1024> rb;
-    int val = 0;
 
     for (auto _ : state) {
         rb.push(42);
-        rb.pop(val);
+        auto val = rb.pop();
         benchmark::DoNotOptimize(val);
     }
     state.SetItemsProcessed(state.iterations());
