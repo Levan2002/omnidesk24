@@ -10,16 +10,17 @@ TEST(QualityTuner, TextRegionsGetLowerQP) {
     int baseQP = 30;
 
     int textQP = tuner.adjustQP(baseQP, ContentType::TEXT);
-    // TEXT should get lower QP (better quality), default delta is -8
-    EXPECT_EQ(textQP, baseQP - 8);
+    // TEXT should get lower QP (better quality), default delta is -15
+    EXPECT_EQ(textQP, baseQP - 15);
 }
 
-TEST(QualityTuner, MotionRegionsQPUnchanged) {
+TEST(QualityTuner, MotionRegionsGetHigherQP) {
     QualityTuner tuner;
     int baseQP = 30;
 
     int motionQP = tuner.adjustQP(baseQP, ContentType::MOTION);
-    EXPECT_EQ(motionQP, baseQP);
+    // MOTION gets slightly higher QP (perceptual masking), default delta is +4
+    EXPECT_EQ(motionQP, baseQP + 4);
 }
 
 TEST(QualityTuner, StaticRegionsFlaggedForSkip) {
