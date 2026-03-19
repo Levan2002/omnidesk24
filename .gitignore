@@ -13,3 +13,4 @@ build-fresh/
 build-gui/
 build-gui-single/
 build-webrtc/
+build-analyzer/
