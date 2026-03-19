@@ -3,6 +3,7 @@
 #include "core/types.h"
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace omnidesk {
 
@@ -19,6 +20,21 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
 
 // Convert a Frame from BGRA to I420 in-place (allocates new buffer)
 void convertFrameToI420(const Frame& src, Frame& dst);
+
+// Convert only the specified rectangular region from BGRA to I420.
+// The rect is automatically aligned to 2x2 chroma boundaries.
+// yPlane/uPlane/vPlane must already be allocated at full frame dimensions.
+void bgraToI420Region(const uint8_t* bgra, int width, int height, int bgraStride,
+                      uint8_t* yPlane, int yStride,
+                      uint8_t* uPlane, int uStride,
+                      uint8_t* vPlane, int vStride,
+                      const Rect& region);
+
+// Convert only dirty regions from BGRA to I420. The destination frame is
+// allocated (or reused) at full frame size. Only the dirty rectangles are
+// converted — unchanged regions preserve their previous I420 data.
+void convertDirtyRegionsToI420(const Frame& src, Frame& dst,
+                               const std::vector<Rect>& dirtyRects);
 
 // Fast block comparison: compare two 16x16 pixel blocks (BGRA)
 // Returns true if blocks differ by more than threshold.
@@ -38,6 +54,12 @@ namespace avx2 {
                     uint8_t* yPlane, int yStride,
                     uint8_t* uPlane, int uStride,
                     uint8_t* vPlane, int vStride);
+
+    void bgraToI420Region(const uint8_t* bgra, int width, int height, int bgraStride,
+                          uint8_t* yPlane, int yStride,
+                          uint8_t* uPlane, int uStride,
+                          uint8_t* vPlane, int vStride,
+                          int rx, int ry, int rw, int rh);
 
     bool blocksDiffer(const uint8_t* blockA, const uint8_t* blockB,
                       int stride, int blockSize, int threshold);

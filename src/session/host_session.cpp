@@ -202,11 +202,10 @@ void HostSession::encodeLoop() {
         // Smooth the ratio — used by adaptive quality controller for FPS decisions
         motionRatio_ = motionRatio_ * 0.7f + motionFrac * 0.3f;
 
-        // Convert to I420 for encoding (only for frames that have changes).
-        // Reuse the I420 buffer to avoid allocating a new vector every frame.
-        // convertFrameToI420 calls dst.allocate() which resizes only if needed
-        // (std::vector::resize is a no-op when the size already matches).
-        convertFrameToI420(capturedFrame, reusableI420Frame_);
+        // Convert only dirty regions to I420 — unchanged areas keep their
+        // previous I420 data, saving significant CPU on typical desktop
+        // workloads where only a small portion of the screen changes.
+        convertDirtyRegionsToI420(capturedFrame, reusableI420Frame_, dirtyRects);
         Frame& i420Frame = reusableI420Frame_;
 
         // Adaptive resolution: resize I420 frame if encode resolution

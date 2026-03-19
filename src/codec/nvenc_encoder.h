@@ -13,9 +13,13 @@
 
 namespace omnidesk {
 
+// Forward-declare our minimal NVENC API wrappers (defined in the .cpp)
+struct NvencFunctions;
+
 // H.264 hardware encoder using NVIDIA NVENC.
 // Uses low-latency preset with CBR rate control.
-// Supports intra-refresh for gradual IDR replacement.
+// Loads the NVENC library at runtime via dlopen/LoadLibrary
+// to avoid requiring the NVENC SDK headers at compile time.
 class NvencEncoder : public IEncoder {
 public:
     NvencEncoder();
@@ -33,15 +37,30 @@ public:
 
 private:
     bool loadLibrary();
+    bool initCuda();
     bool openSession();
-    bool initEncoder();
+    bool configureEncoder();
     bool createBuffers();
+    void uploadFrame(const Frame& frame);
     void destroy();
 
-    void* libHandle_ = nullptr;
+    // CUDA
+    void* cuContext_ = nullptr;
+
+    // NVENC library and function table
+    void* nvencLib_ = nullptr;
+    void* cudaLib_ = nullptr;
+    std::unique_ptr<NvencFunctions> fn_;
     void* encoder_ = nullptr;
-    void* inputBuffer_ = nullptr;
-    void* outputBuffer_ = nullptr;
+
+    // Registered input/output resources
+    void* registeredInput_ = nullptr;
+    void* mappedInput_ = nullptr;
+    void* bitstreamBuffer_ = nullptr;
+
+    // System-memory input buffer (NV12)
+    std::vector<uint8_t> nv12Buffer_;
+    uint32_t nv12Pitch_ = 0;
 
     EncoderConfig config_{};
     bool initialized_ = false;

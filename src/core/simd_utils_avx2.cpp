@@ -189,6 +189,22 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
     }
 }
 
+void bgraToI420Region(const uint8_t* bgra, int /*width*/, int /*height*/, int bgraStride,
+                      uint8_t* yPlane, int yStride,
+                      uint8_t* uPlane, int uStride,
+                      uint8_t* vPlane, int vStride,
+                      int rx, int ry, int rw, int rh) {
+    // Delegate to the full-frame AVX2 converter, but offset the pointers
+    // so it only processes the sub-rectangle.
+    const uint8_t* regionBgra = bgra + ry * bgraStride + rx * 4;
+    uint8_t* regionY = yPlane + ry * yStride + rx;
+    uint8_t* regionU = uPlane + (ry / 2) * uStride + (rx / 2);
+    uint8_t* regionV = vPlane + (ry / 2) * vStride + (rx / 2);
+
+    bgraToI420(regionBgra, rw, rh, bgraStride,
+               regionY, yStride, regionU, uStride, regionV, vStride);
+}
+
 bool blocksDiffer(const uint8_t* blockA, const uint8_t* blockB,
                   int stride, int blockSize, int threshold) {
     int diffCount = 0;

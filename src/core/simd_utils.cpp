@@ -275,6 +275,73 @@ void bgraToI420(const uint8_t* bgra, int width, int height, int bgraStride,
                     yPlane, yStride, uPlane, uStride, vPlane, vStride);
 }
 
+void bgraToI420Region(const uint8_t* bgra, int width, int height, int bgraStride,
+                      uint8_t* yPlane, int yStride,
+                      uint8_t* uPlane, int uStride,
+                      uint8_t* vPlane, int vStride,
+                      const Rect& region) {
+    // Align region to 2x2 chroma boundaries
+    int rx = region.x & ~1;
+    int ry = region.y & ~1;
+    int rr = std::min((region.right() + 1) & ~1, width);
+    int rb = std::min((region.bottom() + 1) & ~1, height);
+    int rw = rr - rx;
+    int rh = rb - ry;
+
+    if (rw <= 0 || rh <= 0) return;
+
+    static bool hasAVX2 = cpuSupportsAVX2();
+    if (hasAVX2) {
+        avx2::bgraToI420Region(bgra, width, height, bgraStride,
+                               yPlane, yStride, uPlane, uStride, vPlane, vStride,
+                               rx, ry, rw, rh);
+        return;
+    }
+
+    // SSE2/scalar path: convert only the dirty region
+    const uint8_t* regionBgra = bgra + ry * bgraStride + rx * 4;
+    uint8_t* regionY = yPlane + ry * yStride + rx;
+    uint8_t* regionU = uPlane + (ry / 2) * uStride + (rx / 2);
+    uint8_t* regionV = vPlane + (ry / 2) * vStride + (rx / 2);
+
+    bgraToI420_sse2(regionBgra, rw, rh, bgraStride,
+                    regionY, yStride, regionU, uStride, regionV, vStride);
+}
+
+void convertDirtyRegionsToI420(const Frame& src, Frame& dst,
+                               const std::vector<Rect>& dirtyRects) {
+    if (src.format != PixelFormat::BGRA && src.format != PixelFormat::RGBA) {
+        LOG_ERROR("convertDirtyRegionsToI420: unsupported source format");
+        return;
+    }
+
+    // Allocate/reuse the destination buffer at full frame size.
+    // Frame::allocate only resizes if dimensions changed, so this is cheap.
+    bool freshAlloc = dst.data.empty() ||
+                      dst.width != src.width || dst.height != src.height;
+    dst.allocate(src.width, src.height, PixelFormat::I420);
+    dst.timestampUs = src.timestampUs;
+    dst.frameId = src.frameId;
+
+    if (freshAlloc) {
+        // First frame or resolution change: convert the full frame
+        bgraToI420(src.data.data(), src.width, src.height, src.stride,
+                   dst.plane(0), dst.stride,
+                   dst.plane(1), dst.stride / 2,
+                   dst.plane(2), dst.stride / 2);
+        return;
+    }
+
+    // Convert only the dirty regions
+    for (const auto& rect : dirtyRects) {
+        bgraToI420Region(src.data.data(), src.width, src.height, src.stride,
+                         dst.plane(0), dst.stride,
+                         dst.plane(1), dst.stride / 2,
+                         dst.plane(2), dst.stride / 2,
+                         rect);
+    }
+}
+
 void convertFrameToI420(const Frame& src, Frame& dst) {
     if (src.format == PixelFormat::I420) {
         dst = src; // Already I420
