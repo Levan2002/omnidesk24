@@ -1,0 +1,117 @@
+<rml>
+<head>
+    <link type="text/rcss" href="../styles/theme.rcss"/>
+    <style>
+        body {
+            background-color: rgba(0, 0, 0, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+        #settings-card {
+            width: 480dp;
+            max-height: 520dp;
+            overflow-y: auto;
+        }
+        #settings-header {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12dp;
+        }
+        #settings-title {
+            font-size: 18dp;
+            font-weight: bold;
+            color: #f0f1f5;
+        }
+        #close-btn {
+            padding: 4dp 10dp;
+            font-size: 18dp;
+        }
+    </style>
+</head>
+<body data-model="settings">
+    <div id="settings-card" class="card">
+        <div id="settings-header">
+            <span id="settings-title">Settings</span>
+            <button id="close-btn" class="btn-subtle btn-small">X</button>
+        </div>
+
+        <tabset>
+            <tab>Video</tab>
+            <panel>
+                <div class="form-group">
+                    <div class="form-label">Quality Preset</div>
+                    <div class="form-row">
+                        <button id="preset-low" class="btn-subtle btn-small">Low</button>
+                        <button id="preset-med" class="btn-subtle btn-small">Medium</button>
+                        <button id="preset-high" class="btn-subtle btn-small">High</button>
+                        <button id="preset-ultra" class="btn-subtle btn-small">Ultra</button>
+                    </div>
+                </div>
+                <hr/>
+                <div class="form-label">Fine Tuning</div>
+                <div class="form-group">
+                    <div class="form-label">Max FPS: {{ maxFps }}</div>
+                    <input type="range" id="fps-slider" min="15" max="60" data-value="maxFps"/>
+                </div>
+                <div class="form-group">
+                    <div class="form-label">Target Bitrate: {{ targetBitrateKbps }} kbps</div>
+                    <input type="range" id="bitrate-slider" min="100" max="10000" data-value="targetBitrateKbps"/>
+                </div>
+            </panel>
+
+            <tab>Network</tab>
+            <panel>
+                <div class="form-group">
+                    <div class="form-label">Forward Error Correction</div>
+                    <div class="form-row">
+                        <button id="fec-off" class="btn-subtle btn-small">Off</button>
+                        <button id="fec-low" class="btn-subtle btn-small">Low</button>
+                        <button id="fec-med" class="btn-subtle btn-small">Medium</button>
+                        <button id="fec-high" class="btn-subtle btn-small">High</button>
+                    </div>
+                </div>
+            </panel>
+
+            <tab>Display</tab>
+            <panel>
+                <div class="form-group">
+                    <div class="form-label">Rendering</div>
+                    <div class="mt-8">
+                        <input type="checkbox" id="sharpening-cb" checked/> Text Sharpening (CAS)
+                    </div>
+                    <div class="mt-8">
+                        <input type="checkbox" id="cursor-cb" checked/> Show Remote Cursor
+                    </div>
+                </div>
+            </panel>
+
+            <tab>Advanced</tab>
+            <panel>
+                <div class="form-group">
+                    <div class="form-label">Encoder</div>
+                    <select id="encoder-select">
+                        <option value="auto" selected>Auto</option>
+                        <option value="sw">Software (OpenH264)</option>
+                        <option value="hw">Hardware</option>
+                    </select>
+                </div>
+                <hr/>
+                <div class="form-group">
+                    <div class="form-label">Log Level</div>
+                    <select id="loglevel-select">
+                        <option value="debug">Debug</option>
+                        <option value="info" selected>Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="error">Error</option>
+                    </select>
+                </div>
+            </panel>
+        </tabset>
+    </div>
+</body>
+</rml>

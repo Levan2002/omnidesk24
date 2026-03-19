@@ -9,31 +9,27 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-struct GLFWwindow;
+#include <windows.h>
 
 namespace omnidesk {
 
-// Forward declarations
 class SignalingClient;
 class HostSession;
 class ViewerSession;
 class InputHandler;
 class InputInjector;
+// D2D objects are module-level statics in app.cpp
 
 enum class AppState {
-    DASHBOARD,      // Main screen: show ID, connect field
-    CONNECTING,     // Waiting for host to accept
-    SESSION_HOST,   // Hosting a remote desktop session
-    SESSION_VIEWER, // Viewing a remote desktop
+    DASHBOARD,
+    CONNECTING,
+    SESSION_HOST,
+    SESSION_VIEWER,
 };
 
 struct AppConfig {
     std::string signalingHost = "signal.omnidesk24.com";
     uint16_t    signalingPort = 9800;
-    // Fallback ports tried in order when signalingPort is unreachable.
-    // 8443: nginx TCP-proxy (HTTPS-alternate). 443: port used by HTTPS,
-    // almost never blocked even on corporate/school networks.
     std::vector<uint16_t> signalingFallbackPorts = {8443, 443};
     EncoderConfig encoder;
     CaptureConfig capture;
@@ -50,64 +46,94 @@ public:
     ~App();
 
     bool init(const AppConfig& config);
-    void run();  // Main loop
+    void run();   // Win32 message loop
     void shutdown();
 
     AppState state() const { return state_; }
 
+    // Win32 message handler (called from WndProc)
+    LRESULT handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 private:
-    void initImGui();
-    void renderFrame();
-    void renderDashboard();
-    void renderConnecting();
-    void renderSession();
+    // Initialization
+    bool createMainWindow();
+    bool createGlChildWindow();
+    void initD2D();
+    void initSignaling();
+
+    // Rendering
+    void paint();           // called on WM_PAINT or when dirty
+    void invalidate();      // marks window for repaint
+
+    // State management
     void handleConnectionRequest(const UserID& fromUser);
     void connectToPeer(const std::string& peerId);
     void disconnectSession();
     void queueAction(std::function<void()> action);
-    void tryConnectSignaling();       // attempt signaling connect + register
-    void startReconnectThread();      // background thread for retrying
+    void drainPendingActions();
+    void tryConnectSignaling();
+    void startReconnectThread();
 
-    GLFWwindow* window_ = nullptr;
+    // GL child window management
+    void showGlWindow();
+    void hideGlWindow();
+
+    // Window handles
+    HWND mainHwnd_ = nullptr;
+    HWND glHwnd_ = nullptr;       // OpenGL child window
+    HDC  glDC_ = nullptr;
+    HGLRC glRC_ = nullptr;
+
+    // D2D: objects are module-level statics in app.cpp
+
+    // App state
     AppConfig config_;
     AppState state_ = AppState::DASHBOARD;
+    AppState prevState_ = AppState::DASHBOARD;
     UserID myId_;
 
     // UI state
-    char connectIdInput_[16] = {};
+    std::string connectIdInput_;
     bool showSettings_ = false;
     bool showStats_ = false;
     bool showConnectionDialog_ = false;
     UserID pendingConnectionFrom_;
     std::string statusMessage_;
     float statusMessageTimer_ = 0.0f;
-    float connectTimeoutSec_  = 0.0f;   // seconds spent in CONNECTING state
+    float connectTimeoutSec_ = 0.0f;
+    bool connectInputFocused_ = false;
 
     // Session management
     std::unique_ptr<SignalingClient> signaling_;
     std::unique_ptr<HostSession> hostSession_;
     std::unique_ptr<ViewerSession> viewerSession_;
     std::unique_ptr<WebRtcSession> webrtcSession_;
-    std::unique_ptr<InputHandler> inputHandler_;    // viewer-side: captures local input
-    std::unique_ptr<InputInjector> inputInjector_;  // host-side: injects remote input
+    std::unique_ptr<InputHandler> inputHandler_;
+    std::unique_ptr<InputInjector> inputInjector_;
 
-    // Thread-safe queue for actions posted from the signaling receive thread
-    // and dispatched on the main/UI thread each frame.
+    // Thread-safe action queue
     std::vector<std::function<void()>> pendingActions_;
     std::mutex pendingActionsMutex_;
+    HANDLE wakeEvent_ = nullptr;  // signals MsgWaitForMultipleObjects
 
-    // Background reconnect thread: retries connecting when initial attempt
-    // or any subsequent disconnect leaves us without a signaling connection.
+    // Background reconnect
     std::thread reconnectThread_;
     std::atomic<bool> appRunning_{false};
 
-    // --- GPU optimization: skip full ImGui render when nothing changed ---
-    // During an active viewer session, track if any UI-visible change happened
-    // this frame. If nothing changed (no new video frame, no mouse/keyboard,
-    // no pending actions), skip the ImGui NewFrame/Render cycle entirely and
-    // just swap the previous framebuffer content via VSync.
-    int idleFrameCount_ = 0;     // consecutive frames with no changes
-    bool uiDirty_ = true;        // something needs redraw
+    // Timing
+    LARGE_INTEGER perfFreq_{};
+    LARGE_INTEGER lastFrame_{};
+
+    // Mouse state for hover effects
+    float mouseX_ = 0, mouseY_ = 0;
+    // Cached button rects for hit testing and hover
+    struct FRect { float x, y, w, h; };
+    FRect rCopyBtn_{}, rConnectBtn_{}, rSettingsBtn_{}, rConnectInput_{};
+    // Custom title bar
+    static constexpr float kTitleBarH = 32.0f;
+    int hoveredTitleBtn_ = 0; // 0=none, 1=min, 2=max, 3=close
+    bool isMaximized_ = false;
+    RECT restoreRect_ = {100, 100, 1380, 900}; // saved window rect before maximize
 };
 
 } // namespace omnidesk

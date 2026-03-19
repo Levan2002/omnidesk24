@@ -1,19 +1,11 @@
 #include "input/input_handler.h"
-#include <GLFW/glfw3.h>
 
 namespace omnidesk {
 
-// Store handler pointer in GLFW window user data
-void InputHandler::init(GLFWwindow* window, int remoteWidth, int remoteHeight) {
-    window_ = window;
+void InputHandler::init(HWND hwnd, int remoteWidth, int remoteHeight) {
+    hwnd_ = hwnd;
     remoteWidth_ = remoteWidth;
     remoteHeight_ = remoteHeight;
-    glfwSetWindowUserPointer(window, this);
-
-    glfwSetCursorPosCallback(window, glfwMouseCallback);
-    glfwSetMouseButtonCallback(window, glfwButtonCallback);
-    glfwSetScrollCallback(window, glfwScrollCallback);
-    glfwSetKeyCallback(window, glfwKeyCallback);
 }
 
 void InputHandler::setRemoteSize(int width, int height) {
@@ -26,73 +18,76 @@ void InputHandler::poll() {
     // TODO: implement clipboard polling
 }
 
-void InputHandler::glfwMouseCallback(GLFWwindow* window, double x, double y) {
-    auto* self = static_cast<InputHandler*>(glfwGetWindowUserPointer(window));
-    if (!self || !self->enabled_ || !self->onMouse_) return;
+void InputHandler::onMouseMove(int windowX, int windowY) {
+    if (!enabled_ || !onMouse_) return;
 
-    // Map window coordinates to remote desktop coordinates
-    int winW, winH;
-    glfwGetWindowSize(window, &winW, &winH);
+    // Get client area dimensions for coordinate mapping
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+    int winW = rc.right - rc.left;
+    int winH = rc.bottom - rc.top;
+    if (winW <= 0 || winH <= 0) return;
+
+    lastMouseX_ = windowX;
+    lastMouseY_ = windowY;
 
     MouseEvent evt;
-    evt.x = static_cast<int32_t>(x * self->remoteWidth_ / winW);
-    evt.y = static_cast<int32_t>(y * self->remoteHeight_ / winH);
+    evt.x = static_cast<int32_t>(windowX * remoteWidth_ / winW);
+    evt.y = static_cast<int32_t>(windowY * remoteHeight_ / winH);
     evt.isAbsolute = true;
 
-    self->onMouse_(evt);
+    onMouse_(evt);
 }
 
-void InputHandler::glfwButtonCallback(GLFWwindow* window, int button, int action, int /*mods*/) {
-    auto* self = static_cast<InputHandler*>(glfwGetWindowUserPointer(window));
-    if (!self || !self->enabled_ || !self->onMouse_) return;
+void InputHandler::onMouseButton(int button, bool pressed) {
+    if (!enabled_ || !onMouse_) return;
 
-    double x, y;
-    glfwGetCursorPos(window, &x, &y);
-    int winW, winH;
-    glfwGetWindowSize(window, &winW, &winH);
+    // Map last known cursor position to remote coords
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+    int winW = rc.right - rc.left;
+    int winH = rc.bottom - rc.top;
+    if (winW <= 0 || winH <= 0) return;
 
     MouseEvent evt;
-    evt.x = static_cast<int32_t>(x * self->remoteWidth_ / winW);
-    evt.y = static_cast<int32_t>(y * self->remoteHeight_ / winH);
+    evt.x = static_cast<int32_t>(lastMouseX_ * remoteWidth_ / winW);
+    evt.y = static_cast<int32_t>(lastMouseY_ * remoteHeight_ / winH);
     evt.isAbsolute = true;
-    evt.pressed = (action == GLFW_PRESS);
+    evt.pressed = pressed;
 
-    // Always set button bitmask so the receiver knows which button changed
-    if (button == GLFW_MOUSE_BUTTON_LEFT) evt.buttons |= 1;
-    if (button == GLFW_MOUSE_BUTTON_RIGHT) evt.buttons |= 2;
-    if (button == GLFW_MOUSE_BUTTON_MIDDLE) evt.buttons |= 4;
+    // Set button bitmask so the receiver knows which button changed
+    if (button == 0) evt.buttons |= 1;       // left
+    else if (button == 1) evt.buttons |= 2;  // right
+    else if (button == 2) evt.buttons |= 4;  // middle
 
-    self->onMouse_(evt);
+    onMouse_(evt);
 }
 
-void InputHandler::glfwScrollCallback(GLFWwindow* window, double xoff, double yoff) {
-    auto* self = static_cast<InputHandler*>(glfwGetWindowUserPointer(window));
-    if (!self || !self->enabled_ || !self->onMouse_) return;
+void InputHandler::onScroll(int delta) {
+    if (!enabled_ || !onMouse_) return;
 
-    double x, y;
-    glfwGetCursorPos(window, &x, &y);
-    int winW, winH;
-    glfwGetWindowSize(window, &winW, &winH);
+    RECT rc;
+    GetClientRect(hwnd_, &rc);
+    int winW = rc.right - rc.left;
+    int winH = rc.bottom - rc.top;
+    if (winW <= 0 || winH <= 0) return;
 
     MouseEvent evt;
-    evt.x = static_cast<int32_t>(x * self->remoteWidth_ / winW);
-    evt.y = static_cast<int32_t>(y * self->remoteHeight_ / winH);
-    evt.scrollX = static_cast<int16_t>(xoff * 120);
-    evt.scrollY = static_cast<int16_t>(yoff * 120);
+    evt.x = static_cast<int32_t>(lastMouseX_ * remoteWidth_ / winW);
+    evt.y = static_cast<int32_t>(lastMouseY_ * remoteHeight_ / winH);
+    evt.scrollY = static_cast<int16_t>(delta);
 
-    self->onMouse_(evt);
+    onMouse_(evt);
 }
 
-void InputHandler::glfwKeyCallback(GLFWwindow* window, int /*key*/, int scancode,
-                                    int action, int /*mods*/) {
-    auto* self = static_cast<InputHandler*>(glfwGetWindowUserPointer(window));
-    if (!self || !self->enabled_ || !self->onKey_) return;
+void InputHandler::onKey(UINT scancode, bool pressed) {
+    if (!enabled_ || !onKey_) return;
 
     KeyEvent evt;
     evt.scancode = static_cast<uint32_t>(scancode);
-    evt.pressed = (action == GLFW_PRESS || action == GLFW_REPEAT);
+    evt.pressed = pressed;
 
-    self->onKey_(evt);
+    onKey_(evt);
 }
 
 } // namespace omnidesk

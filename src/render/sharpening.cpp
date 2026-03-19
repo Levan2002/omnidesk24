@@ -2,7 +2,6 @@
 #include "core/logger.h"
 
 #include "render/gl_proc.h"
-#include <GLFW/glfw3.h>
 
 namespace omnidesk {
 

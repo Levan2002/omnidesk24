@@ -2,7 +2,7 @@
 
 #ifdef _WIN32
 
-#include <GLFW/glfw3.h>
+#include <GL/wglext.h>
 
 // Define all function pointer globals
 PFNGLACTIVETEXTUREPROC            glActiveTexture           = nullptr;
@@ -39,8 +39,9 @@ PFNGLGENFRAMEBUFFERSPROC          glGenFramebuffers         = nullptr;
 PFNGLBINDFRAMEBUFFERPROC          glBindFramebuffer         = nullptr;
 PFNGLFRAMEBUFFERTEXTURE2DPROC     glFramebufferTexture2D    = nullptr;
 PFNGLDELETEFRAMEBUFFERSPROC       glDeleteFramebuffers      = nullptr;
+PFNGLBLITFRAMEBUFFERPROC          glBlitFramebuffer         = nullptr;
 
-#define LOAD(name) name = reinterpret_cast<decltype(name)>(glfwGetProcAddress(#name))
+#define LOAD(name) name = reinterpret_cast<decltype(name)>(wglGetProcAddress(#name))
 
 namespace omnidesk {
 
@@ -79,6 +80,7 @@ void loadGLProcs() {
     LOAD(glBindFramebuffer);
     LOAD(glFramebufferTexture2D);
     LOAD(glDeleteFramebuffers);
+    LOAD(glBlitFramebuffer);
 }
 
 }  // namespace omnidesk

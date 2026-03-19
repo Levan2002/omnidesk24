@@ -1,0 +1,171 @@
+<rml>
+<head>
+    <style>
+        body {
+            font-family: Inter;
+            font-size: 16dp;
+            color: #f0f1f5;
+            background-color: #17171c;
+            text-align: center;
+        }
+        div { display: block; }
+        #spacer-top {
+            display: block;
+            height: 80dp;
+        }
+        #main-card {
+            display: inline-block;
+            width: 380dp;
+            background-color: #21212a;
+            border-radius: 14dp;
+            padding: 22dp;
+            text-align: left;
+        }
+        #title {
+            font-size: 22dp;
+            font-weight: bold;
+            color: #4285f5;
+            text-align: center;
+            margin-bottom: 10dp;
+        }
+        #pill-row {
+            text-align: center;
+            margin-bottom: 18dp;
+        }
+        #status-pill {
+            display: inline-block;
+            border-radius: 10dp;
+            padding: 3dp 14dp;
+            font-size: 12dp;
+            color: #ffffff;
+            background-color: rgba(230, 77, 77, 0.9);
+        }
+        .section-label {
+            color: #8d8f99;
+            font-size: 13dp;
+            margin-bottom: 4dp;
+        }
+        #id-box {
+            background-color: #292933;
+            border-radius: 6dp;
+            padding: 12dp;
+            margin-bottom: 18dp;
+            text-align: center;
+        }
+        #my-id {
+            font-size: 26dp;
+            font-weight: bold;
+            color: #f0f1f5;
+        }
+        #copy-btn {
+            display: inline-block;
+            background-color: #2e2e38;
+            color: #c0c1c5;
+            border-radius: 4dp;
+            padding: 4dp 10dp;
+            font-size: 12dp;
+            margin-left: 10dp;
+        }
+        #copy-btn:hover { background-color: #3c3c47; }
+        #connect-section { margin-bottom: 12dp; }
+        #connect-row { margin-top: 4dp; }
+        #connect-input {
+            display: inline-block;
+            background-color: #292933;
+            border: 1dp #3d3d4a;
+            border-radius: 6dp;
+            padding: 8dp 10dp;
+            color: #f0f1f5;
+            font-size: 15dp;
+            width: 220dp;
+        }
+        #connect-input:focus { border-color: #4285f5; }
+        #connect-btn {
+            display: inline-block;
+            background-color: #4285f5;
+            color: #ffffff;
+            border-radius: 6dp;
+            padding: 8dp 16dp;
+            font-size: 14dp;
+            margin-left: 8dp;
+        }
+        #connect-btn:hover { background-color: #5591f7; }
+        #status-message {
+            color: #ffbf4d;
+            margin-top: 6dp;
+            min-height: 16dp;
+        }
+        #settings-row {
+            text-align: right;
+            margin-top: 12dp;
+        }
+        #settings-btn {
+            display: inline-block;
+            background-color: #2e2e38;
+            color: #c0c1c5;
+            border-radius: 6dp;
+            padding: 6dp 14dp;
+            font-size: 13dp;
+        }
+        #settings-btn:hover { background-color: #3c3c47; }
+        #history {
+            display: inline-block;
+            width: 380dp;
+            margin-top: 14dp;
+            text-align: left;
+            background-color: #21212a;
+            border-radius: 10dp;
+            padding: 16dp;
+            box-sizing: border-box;
+        }
+        #history-title {
+            color: #8d8f99;
+            font-size: 13dp;
+        }
+        hr {
+            height: 1dp;
+            background-color: #38384a;
+            margin-top: 6dp;
+            margin-bottom: 6dp;
+        }
+        #no-history {
+            color: #8d8f99;
+            text-align: center;
+            margin-top: 10dp;
+        }
+    </style>
+</head>
+<body>
+    <div id="spacer-top"/>
+    <div id="main-card">
+        <div id="title">OmniDesk24</div>
+        <div id="pill-row"><span id="status-pill">Offline</span></div>
+
+        <div class="section-label">Your Device ID</div>
+        <div id="id-box">
+            <span id="my-id">--------</span>
+            <button id="copy-btn">Copy</button>
+        </div>
+
+        <div id="connect-section">
+            <div class="section-label">Connect to Remote Desktop</div>
+            <div id="connect-row">
+                <input type="text" id="connect-input" maxlength="8"/>
+                <button id="connect-btn">Connect</button>
+            </div>
+        </div>
+
+        <div id="status-message"></div>
+
+        <div id="settings-row">
+            <button id="settings-btn">Settings</button>
+        </div>
+    </div>
+    <br/>
+    <div id="history">
+        <div id="history-title">Recent Connections</div>
+        <hr/>
+        <div id="no-history">No recent connections</div>
+    </div>
+</body>
+</rml>

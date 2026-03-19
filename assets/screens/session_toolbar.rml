@@ -1,0 +1,79 @@
+<rml>
+<head>
+    <link type="text/rcss" href="../styles/theme.rcss"/>
+    <style>
+        body {
+            background-color: transparent;
+            width: 100%;
+            height: 100%;
+        }
+        #toolbar-area {
+            position: absolute;
+            top: 8dp;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+        }
+        #toolbar {
+            display: none;
+        }
+        #toolbar.visible {
+            display: flex;
+        }
+        /* Host status (centered on screen) */
+        #host-status {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #host-title {
+            font-size: 22dp;
+            font-weight: bold;
+            color: #4285f5;
+            margin-bottom: 8dp;
+        }
+        #host-subtitle {
+            color: #8d8f99;
+        }
+        /* Viewer waiting message */
+        #waiting-msg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #8d8f99;
+        }
+    </style>
+</head>
+<body data-model="session">
+    <!-- Waiting for frames (viewer only, no texture yet) -->
+    <div id="waiting-msg" data-if="showWaiting">Waiting for first frame...</div>
+
+    <!-- Host status (host only) -->
+    <div id="host-status" data-if="isHost">
+        <span id="host-title">Hosting Session</span>
+        <span id="host-subtitle">A viewer is connected to your desktop.</span>
+    </div>
+
+    <!-- Floating toolbar (shown on mouse near top) -->
+    <div id="toolbar-area">
+        <div id="toolbar" class="toolbar">
+            <button id="disconnect-btn" class="btn-danger btn-small">Disconnect</button>
+            <div class="toolbar-separator"></div>
+            <button id="stats-btn" class="btn-subtle btn-small">Stats</button>
+            <button id="settings-btn" class="btn-subtle btn-small">Settings</button>
+        </div>
+    </div>
+</body>
+</rml>

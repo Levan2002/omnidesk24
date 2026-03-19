@@ -1,12 +1,2 @@
 #pragma once
-
-#include "ui/app.h"
-
-namespace omnidesk {
-
-class SettingsPanel {
-public:
-    static void render(AppConfig& config, bool* open);
-};
-
-} // namespace omnidesk
+// Settings panel UI is now in assets/screens/settings.rml

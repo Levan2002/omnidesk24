@@ -1,0 +1,38 @@
+<rml>
+<head>
+    <link type="text/rcss" href="../styles/theme.rcss"/>
+    <style>
+        body {
+            background-color: rgba(0, 0, 0, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+        #connect-card {
+            width: 320dp;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+        }
+        #target-id {
+            font-size: 22dp;
+            font-weight: bold;
+            color: #4285f5;
+            margin: 8dp 0 16dp 0;
+        }
+        #cancel-btn {
+            width: 100%;
+            margin-top: 8dp;
+        }
+    </style>
+</head>
+<body data-model="connecting">
+    <div id="connect-card" class="card">
+        <span class="text-muted">Connecting to</span>
+        <span id="target-id">{{ targetId }}{{ dots }}</span>
+        <button id="cancel-btn" class="btn-subtle">Cancel</button>
+    </div>
+</body>
+</rml>

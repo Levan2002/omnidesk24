@@ -1,0 +1,362 @@
+/* OmniDesk24 Global Theme — Modern Dark */
+
+body {
+    font-family: Inter;
+    font-size: 16dp;
+    color: #f0f1f5;
+}
+
+/* ---- Layout Helpers ---- */
+.fill {
+    width: 100%;
+    height: 100%;
+}
+.center-text {
+    text-align: center;
+}
+.center-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ---- Card ---- */
+.card {
+    background-color: #21212a;
+    border-radius: 14dp;
+    padding: 28dp 24dp;
+    border: 1dp #33333f;
+}
+
+/* ---- Surface (inputs, sub-panels) ---- */
+.surface {
+    background-color: #292933;
+    border-radius: 8dp;
+    padding: 10dp 12dp;
+}
+
+/* ---- Buttons ---- */
+button, .btn {
+    background-color: #4285f5;
+    color: #ffffff;
+    border-radius: 6dp;
+    padding: 10dp 18dp;
+    cursor: pointer;
+    font-size: 15dp;
+    text-align: center;
+    border: 0;
+}
+button:hover, .btn:hover {
+    background-color: #5591f7;
+}
+button:active, .btn:active {
+    background-color: #3370d4;
+}
+
+.btn-subtle {
+    background-color: #2e2e38;
+    color: #c0c1c5;
+}
+.btn-subtle:hover {
+    background-color: #3c3c47;
+}
+
+.btn-danger {
+    background-color: #8c2e2e;
+    color: #ffffff;
+}
+.btn-danger:hover {
+    background-color: #e64d4d;
+}
+
+.btn-success {
+    background-color: #40c76b;
+    color: #ffffff;
+}
+.btn-success:hover {
+    background-color: #4dd97a;
+}
+
+.btn-small {
+    padding: 6dp 12dp;
+    font-size: 13dp;
+}
+
+/* ---- Text Variants ---- */
+.text-accent {
+    color: #4285f5;
+}
+.text-muted {
+    color: #8d8f99;
+}
+.text-warning {
+    color: #ffbf4d;
+}
+.text-large {
+    font-size: 22dp;
+    font-weight: bold;
+}
+.text-xl {
+    font-size: 30dp;
+    font-weight: bold;
+}
+.text-title {
+    font-size: 20dp;
+    font-weight: bold;
+    color: #4285f5;
+}
+
+/* ---- Status Pill ---- */
+.pill {
+    border-radius: 12dp;
+    padding: 4dp 14dp;
+    font-size: 13dp;
+    display: inline-block;
+}
+.pill-online {
+    background-color: rgba(64, 199, 107, 0.9);
+    color: #ffffff;
+}
+.pill-offline {
+    background-color: rgba(230, 77, 77, 0.9);
+    color: #ffffff;
+}
+
+/* ---- Input Fields ---- */
+input.text {
+    background-color: #292933;
+    border: 1dp #3d3d4a;
+    border-radius: 6dp;
+    padding: 10dp 14dp;
+    color: #f0f1f5;
+    font-size: 16dp;
+    width: 100%;
+    box-sizing: border-box;
+}
+input.text:focus {
+    border-color: #4285f5;
+}
+
+/* ---- Separator ---- */
+hr {
+    border: 0;
+    height: 1dp;
+    background-color: #38384a;
+    margin: 8dp 0;
+}
+
+/* ---- Overlay / Dim Background ---- */
+.overlay-dim {
+    background-color: rgba(0, 0, 0, 0.55);
+}
+
+/* ---- Toolbar ---- */
+.toolbar {
+    background-color: rgba(26, 26, 33, 0.92);
+    border-radius: 12dp;
+    padding: 6dp 14dp;
+    border: 1dp rgba(56, 56, 71, 0.5);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8dp;
+}
+
+.toolbar-separator {
+    width: 1dp;
+    height: 20dp;
+    background-color: #404050;
+    margin: 0 4dp;
+}
+
+/* ---- Stats Overlay ---- */
+.stats-panel {
+    background-color: rgba(20, 20, 26, 0.88);
+    border-radius: 10dp;
+    padding: 14dp 16dp;
+    border: 1dp rgba(56, 56, 71, 0.6);
+    width: 280dp;
+}
+
+.stat-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 2dp 0;
+}
+.stat-label {
+    color: #8d8f99;
+    font-size: 14dp;
+}
+.stat-value {
+    font-size: 14dp;
+    color: #d2d4d8;
+}
+.quality-good { color: #4dd97a; }
+.quality-warn { color: #f2cc33; }
+.quality-bad { color: #f2594d; }
+
+/* ---- Role Badge ---- */
+.badge {
+    border-radius: 4dp;
+    padding: 2dp 10dp;
+    font-size: 12dp;
+    font-weight: bold;
+    color: #ffffff;
+    display: inline-block;
+}
+.badge-viewer {
+    background-color: rgba(51, 115, 217, 0.9);
+}
+.badge-host {
+    background-color: rgba(166, 77, 204, 0.9);
+}
+
+/* ---- Settings Tabs ---- */
+tabset {
+    display: block;
+}
+tabs {
+    display: flex;
+    flex-direction: row;
+    gap: 4dp;
+    margin-bottom: 12dp;
+    border-bottom: 1dp #38384a;
+    padding-bottom: 8dp;
+}
+tab {
+    padding: 8dp 16dp;
+    border-radius: 6dp 6dp 0 0;
+    color: #8d8f99;
+    cursor: pointer;
+    font-size: 14dp;
+}
+tab:hover {
+    color: #c0c1c5;
+    background-color: #292933;
+}
+tab:selected {
+    color: #4285f5;
+    background-color: #292933;
+    border-bottom: 2dp #4285f5;
+}
+panel {
+    display: block;
+    padding: 8dp 0;
+}
+
+/* ---- Checkbox ---- */
+input.checkbox {
+    margin-right: 8dp;
+}
+
+/* ---- Select (Dropdown) ---- */
+select {
+    background-color: #292933;
+    border: 1dp #3d3d4a;
+    border-radius: 6dp;
+    padding: 8dp 12dp;
+    color: #f0f1f5;
+    font-size: 14dp;
+}
+
+/* ---- Slider ---- */
+input.range {
+    margin: 4dp 0;
+}
+
+/* ---- Spacing ---- */
+.mt-4 { margin-top: 4dp; }
+.mt-8 { margin-top: 8dp; }
+.mt-12 { margin-top: 12dp; }
+.mt-16 { margin-top: 16dp; }
+.mb-4 { margin-bottom: 4dp; }
+.mb-8 { margin-bottom: 8dp; }
+.mb-12 { margin-bottom: 12dp; }
+.gap-8 { gap: 8dp; }
+.gap-12 { gap: 12dp; }
+
+/* ---- Dashboard-specific ---- */
+.id-display {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 12dp;
+    padding: 12dp 16dp;
+    min-height: 48dp;
+}
+.id-text {
+    font-size: 28dp;
+    font-weight: bold;
+    color: #f0f1f5;
+    letter-spacing: 2dp;
+}
+
+.connect-row {
+    display: flex;
+    flex-direction: row;
+    gap: 10dp;
+    align-items: center;
+}
+.connect-row input.text {
+    flex: 1;
+}
+.connect-row button {
+    width: 100dp;
+}
+
+/* ---- User Avatar (connection dialog) ---- */
+.avatar-circle {
+    width: 44dp;
+    height: 44dp;
+    border-radius: 22dp;
+    background-color: rgba(66, 133, 245, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.avatar-inner {
+    width: 32dp;
+    height: 32dp;
+    border-radius: 16dp;
+    background-color: rgba(66, 133, 245, 0.6);
+}
+
+/* ---- Dialog Buttons Row ---- */
+.dialog-buttons {
+    display: flex;
+    flex-direction: row;
+    gap: 16dp;
+    justify-content: center;
+    margin-top: 16dp;
+}
+.dialog-buttons button {
+    width: 130dp;
+    padding: 10dp 0;
+}
+
+/* ---- Settings form ---- */
+.form-group {
+    margin-bottom: 12dp;
+}
+.form-label {
+    color: #8d8f99;
+    font-size: 14dp;
+    margin-bottom: 4dp;
+}
+.form-row {
+    display: flex;
+    flex-direction: row;
+    gap: 12dp;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* ---- History Panel ---- */
+.history-panel {
+    margin-top: 16dp;
+    padding: 20dp;
+    opacity: 0.85;
+}

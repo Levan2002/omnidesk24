@@ -17,8 +17,8 @@ public:
     // Upload a decoded I420 frame (or just dirty regions)
     void uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyRects = {});
 
-    // Render the current frame to screen
-    void render(int viewportWidth, int viewportHeight);
+    // Render the current frame to screen. Returns true if a new frame was displayed.
+    bool render(int viewportWidth, int viewportHeight);
 
     // Get texture ID for ImGui::Image()
     uint32_t textureId() const { return rgbTexture_; }

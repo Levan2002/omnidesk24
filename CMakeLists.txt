@@ -195,7 +195,7 @@ add_library(omnidesk_render STATIC
     src/render/sharpening.cpp
     src/render/gl_proc.cpp
 )
-target_link_libraries(omnidesk_render PUBLIC omnidesk_core glfw)
+target_link_libraries(omnidesk_render PUBLIC omnidesk_core)
 if(OMNIDESK_PLATFORM_LINUX)
     target_link_libraries(omnidesk_render PRIVATE GL)
 endif()
@@ -209,20 +209,19 @@ add_library(omnidesk_input STATIC
     src/input/input_injector.cpp
     src/input/cursor_predictor.cpp
 )
-target_link_libraries(omnidesk_input PUBLIC omnidesk_core glfw)
+target_link_libraries(omnidesk_input PUBLIC omnidesk_core)
 
-# UI
+# UI (Win32 + Direct2D + DirectWrite)
 add_library(omnidesk_ui STATIC
     src/ui/app.cpp
+    src/ui/d2d_renderer.cpp
+    src/ui/dashboard_panel.cpp
     src/ui/theme.cpp
-    src/ui/dashboard.cpp
-    src/ui/session_view.cpp
-    src/ui/settings_panel.cpp
-    src/ui/connection_dialog.cpp
-    src/ui/stats_overlay.cpp
-    src/ui/history_panel.cpp
 )
-target_link_libraries(omnidesk_ui PUBLIC omnidesk_core imgui glfw)
+target_link_libraries(omnidesk_ui PUBLIC omnidesk_core)
+if(OMNIDESK_PLATFORM_WINDOWS)
+    target_link_libraries(omnidesk_ui PRIVATE d2d1 dwrite opengl32 ole32)
+endif()
 
 # Session
 add_library(omnidesk_session STATIC
@@ -245,6 +244,7 @@ else()
     add_executable(omnidesk24 src/main.cpp)
 endif()
 target_link_libraries(omnidesk24 PRIVATE omnidesk_ui omnidesk_session)
+
 if(OMNIDESK_PLATFORM_WINDOWS)
     target_link_libraries(omnidesk24 PRIVATE shell32)
     # Statically link MinGW runtimes so the exe has no external DLL dependencies

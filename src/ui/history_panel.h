@@ -1,10 +1,2 @@
 #pragma once
-
-namespace omnidesk {
-
-class HistoryPanel {
-public:
-    static void render();
-};
-
-} // namespace omnidesk
+// History panel UI is now in assets/screens/dashboard.rml

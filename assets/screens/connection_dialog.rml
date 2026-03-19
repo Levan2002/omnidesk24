@@ -1,0 +1,57 @@
+<rml>
+<head>
+    <link type="text/rcss" href="../styles/theme.rcss"/>
+    <style>
+        body {
+            background-color: rgba(0, 0, 0, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+        #dialog-card {
+            width: 380dp;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        #dialog-title {
+            font-size: 18dp;
+            color: #f0f1f5;
+            margin: 12dp 0;
+        }
+        #req-id-box {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            padding: 10dp;
+            margin-bottom: 8dp;
+        }
+        #req-id {
+            font-size: 22dp;
+            font-weight: bold;
+            color: #4285f5;
+        }
+        #dialog-desc {
+            color: #8d8f99;
+            margin-bottom: 12dp;
+        }
+    </style>
+</head>
+<body data-model="connection_dialog">
+    <div id="dialog-card" class="card">
+        <div class="avatar-circle"><div class="avatar-inner"></div></div>
+        <div id="dialog-title">Incoming Connection</div>
+        <div id="req-id-box" class="surface">
+            <span id="req-id">{{ fromId }}</span>
+        </div>
+        <div id="dialog-desc">wants to view your desktop</div>
+        <div class="dialog-buttons">
+            <button id="accept-btn" class="btn-success">Accept</button>
+            <button id="reject-btn" class="btn-danger">Reject</button>
+        </div>
+    </div>
+</body>
+</rml>

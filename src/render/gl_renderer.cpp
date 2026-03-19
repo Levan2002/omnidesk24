@@ -2,7 +2,6 @@
 #include "core/logger.h"
 
 #include "render/gl_proc.h"
-#include <GLFW/glfw3.h>
 #include <cstring>
 
 // We need GL function pointers for GL 3.3 core
@@ -284,11 +283,12 @@ void GlRenderer::uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyR
     }
 }
 
-void GlRenderer::render(int viewportWidth, int viewportHeight) {
-    if (!initialized_) return;
+bool GlRenderer::render(int viewportWidth, int viewportHeight) {
+    if (!initialized_) return false;
 
+    bool hadNewFrame = dirty_;
     // Only run the I420→RGB shader when a new frame was uploaded.
-    // The FBO retains the previous RGB result, so ImGui::Image can
+    // The FBO retains the previous RGB result, so the blit can
     // keep displaying it without re-rendering — saves massive GPU.
     if (dirty_) {
         dirty_ = false;
@@ -311,7 +311,17 @@ void GlRenderer::render(int viewportWidth, int viewportHeight) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    glViewport(0, 0, viewportWidth, viewportHeight);
+    // Only blit when we have a new frame (avoids redundant GPU work)
+    if (hadNewFrame) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glViewport(0, 0, viewportWidth, viewportHeight);
+        glBlitFramebuffer(0, 0, frameWidth_, frameHeight_,
+                          0, viewportHeight, viewportWidth, 0,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    return hadNewFrame;
 }
 
 void GlRenderer::resize(int width, int height) {

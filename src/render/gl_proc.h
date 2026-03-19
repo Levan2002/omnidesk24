@@ -1,11 +1,7 @@
 #pragma once
 
 // Platform-aware OpenGL function loading.
-// On Linux, GL_GLEXT_PROTOTYPES makes all functions available via libGL.
-// On Windows, OpenGL 2.0+ functions are not exported by opengl32.dll and must
-// be loaded at runtime via wglGetProcAddress / glfwGetProcAddress.
-
-#define GLFW_INCLUDE_NONE  // prevent GLFW from pulling in its own GL headers
+// On Windows, OpenGL 2.0+ functions must be loaded via wglGetProcAddress.
 
 #ifdef _WIN32
 
@@ -14,7 +10,7 @@
 #endif
 #include <windows.h>
 #include <GL/gl.h>
-#include <GL/glext.h>  // type-defs only (GL_GLEXT_PROTOTYPES not set)
+#include <GL/glext.h>
 
 // OpenGL 1.3
 extern PFNGLACTIVETEXTUREPROC            glActiveTexture;
@@ -55,9 +51,11 @@ extern PFNGLGENFRAMEBUFFERSPROC          glGenFramebuffers;
 extern PFNGLBINDFRAMEBUFFERPROC          glBindFramebuffer;
 extern PFNGLFRAMEBUFFERTEXTURE2DPROC     glFramebufferTexture2D;
 extern PFNGLDELETEFRAMEBUFFERSPROC       glDeleteFramebuffers;
+// OpenGL 3.0 (blit)
+extern PFNGLBLITFRAMEBUFFERPROC          glBlitFramebuffer;
 
 namespace omnidesk {
-// Call once after the OpenGL context is created (after glfwMakeContextCurrent).
+// Call once after an OpenGL context is current (after wglMakeCurrent).
 void loadGLProcs();
 }
 
@@ -68,7 +66,7 @@ void loadGLProcs();
 #include <GL/glext.h>
 
 namespace omnidesk {
-inline void loadGLProcs() {}  // no-op: symbols come from libGL
+inline void loadGLProcs() {}
 }
 
 #endif

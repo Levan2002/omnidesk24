@@ -1,0 +1,72 @@
+<rml>
+<head>
+    <link type="text/rcss" href="../styles/theme.rcss"/>
+    <style>
+        body {
+            background-color: transparent;
+            width: 100%;
+            height: 100%;
+        }
+        #stats-container {
+            position: absolute;
+            right: 16dp;
+            bottom: 16dp;
+        }
+    </style>
+</head>
+<body data-model="stats">
+    <div id="stats-container">
+        <div class="stats-panel">
+            <div style="display: flex; flex-direction: row; align-items: center; gap: 8dp; margin-bottom: 8dp;">
+                <span data-if="isViewer" class="badge badge-viewer">VIEWER</span>
+                <span data-if="isHost" class="badge badge-host">HOST</span>
+                <span class="text-muted">Performance</span>
+            </div>
+            <hr/>
+
+            <div class="stat-row">
+                <span class="stat-label">Frame Rate</span>
+                <span id="stat-fps" class="stat-value">{{ fps }} fps</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Bitrate</span>
+                <span class="stat-value">{{ bitrate }} Mbps</span>
+            </div>
+            <div class="stat-row" data-if="isViewer">
+                <span class="stat-label">Latency</span>
+                <span id="stat-latency" class="stat-value">{{ latency }} ms</span>
+            </div>
+            <div class="stat-row" data-if="isViewer">
+                <span class="stat-label">Packet Loss</span>
+                <span id="stat-loss" class="stat-value">{{ packetLoss }}%</span>
+            </div>
+            <div class="stat-row" data-if="isViewer">
+                <span class="stat-label">Decode Time</span>
+                <span class="stat-value">{{ decodeTime }} ms</span>
+            </div>
+            <div class="stat-row" data-if="isHost">
+                <span class="stat-label">Encode Time</span>
+                <span class="stat-value">{{ encodeTime }} ms</span>
+            </div>
+            <div class="stat-row" data-if="isHost">
+                <span class="stat-label">Capture Time</span>
+                <span class="stat-value">{{ captureTime }} ms</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Resolution</span>
+                <span class="stat-value">{{ resolution }}</span>
+            </div>
+
+            <hr/>
+            <div class="stat-row">
+                <span class="stat-label">Encoder</span>
+                <span class="stat-value">{{ encoder }}</span>
+            </div>
+            <div class="stat-row" data-if="isViewer">
+                <span class="stat-label">Decoder</span>
+                <span class="stat-value">{{ decoder }}</span>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>
