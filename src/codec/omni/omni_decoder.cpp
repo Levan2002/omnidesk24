@@ -14,12 +14,17 @@ OmniCodecDecoder::~OmniCodecDecoder() = default;
 bool OmniCodecDecoder::init(int width, int height) {
     width_ = width;
     height_ = height;
+    tileSize_ = DEFAULT_TILE_SIZE;
+    tilesX_ = (width + tileSize_ - 1) / tileSize_;
+    tilesY_ = (height + tileSize_ - 1) / tileSize_;
+    refStride_ = width * 4;
+    refFrame_.resize(static_cast<size_t>(refStride_) * height, 0);
     initialized_ = true;
     hasRef_ = false;
 
     tileDecoder_.init(DEFAULT_TILE_SIZE);
 
-    LOG_INFO("OmniCodec decoder initialized");
+    LOG_INFO("OmniCodec decoder initialized: %dx%d", width, height);
     return true;
 }
 
