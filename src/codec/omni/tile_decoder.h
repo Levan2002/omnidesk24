@@ -46,8 +46,12 @@ private:
                            int w, int h, PredMode mode,
                            const int16_t* top, const int16_t* left, int16_t topLeft);
 
-    // Decode rANS-compressed symbols from bitstream.
+    // Decode rANS-compressed symbols from bitstream (with embedded frequency table).
     bool decodeResiduals(BitstreamReader& bs, size_t totalSymbols);
+
+    // Decode rANS-compressed symbols using a pre-built shared decode table.
+    bool decodeResidualsShared(BitstreamReader& bs, size_t totalSymbols,
+                                const RANSDecodeEntry* sharedDecodeTable);
 
     std::vector<int16_t> yBuf_, coBuf_, cgBuf_;
     std::vector<int16_t> residualBuf_;

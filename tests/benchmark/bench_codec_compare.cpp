@@ -339,12 +339,11 @@ static void BM_OmniCodec_Encode(benchmark::State& state) {
     EncodedPacket pkt;
     std::vector<RegionInfo> regions;
 
-    // Warm up with one keyframe
-    enc.requestKeyFrame();
-    enc.encode(frame, regions, pkt);
-
+    // Measure keyframe encoding — request keyframe each iteration
+    // to benchmark actual encoding work (not just SKIP detection).
     size_t totalEncoded = 0;
     for (auto _ : state) {
+        enc.requestKeyFrame();
         frame.timestampUs += 16667;
         enc.encode(frame, regions, pkt);
         benchmark::DoNotOptimize(pkt);
@@ -360,13 +359,9 @@ static void BM_OmniCodec_Encode(benchmark::State& state) {
     double rawSize = static_cast<double>(w) * h * 4;
     state.counters["ratio"] = benchmark::Counter(rawSize / std::max(1.0, static_cast<double>(pkt.data.size())));
 
-    // Quality: decode last frame and measure
+    // Quality: decode the last keyframe and measure
     omni::OmniCodecDecoder dec;
     dec.init(w, h);
-    // Need to decode keyframe first, then the P-frame
-    enc.requestKeyFrame();
-    frame.timestampUs += 16667;
-    enc.encode(frame, regions, pkt);
     Frame decoded;
     if (dec.decode(pkt.data.data(), pkt.data.size(), decoded)) {
         state.counters["PSNR"] = benchmark::Counter(computePSNR_BGRA(frame, decoded));

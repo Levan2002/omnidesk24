@@ -3,7 +3,9 @@
 #include "core/logger.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <future>
 
 namespace omnidesk {
 namespace omni {
@@ -22,9 +24,16 @@ bool OmniCodecDecoder::init(int width, int height) {
     initialized_ = true;
     hasRef_ = false;
 
-    tileDecoder_.init(DEFAULT_TILE_SIZE);
+    // Initialize thread pool and per-thread tile decoders
+    numThreads_ = std::max(1u, std::thread::hardware_concurrency());
+    threadPool_ = std::make_unique<ThreadPool>(numThreads_);
 
-    LOG_INFO("OmniCodec decoder initialized: %dx%d", width, height);
+    tileDecoders_.resize(numThreads_);
+    for (auto& dec : tileDecoders_) {
+        dec.init(DEFAULT_TILE_SIZE);
+    }
+
+    LOG_INFO("OmniCodec decoder initialized: %dx%d, threads=%zu", width, height, numThreads_);
     return true;
 }
 
@@ -67,7 +76,9 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
         refStride_ = width * 4;
         refFrame_.resize(static_cast<size_t>(refStride_) * height, 0);
         hasRef_ = false;
-        tileDecoder_.init(tileSize);
+        for (auto& dec : tileDecoders_) {
+            dec.init(tileSize);
+        }
     }
 
     // Allocate output frame as BGRA
@@ -82,7 +93,17 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
     }
     bs.alignToByte();
 
-    // Decode each tile
+    // Pass 1 (sequential): Handle SKIP and COPY tiles, collect encoded tile info
+    struct EncodedTileInfo {
+        int tileIdx;
+        int tx, ty;
+        int px, py;
+        int tw, th;
+        TileMode mode;
+    };
+    std::vector<EncodedTileInfo> encodedTiles;
+    encodedTiles.reserve(numTiles);
+
     for (int ty = 0; ty < tilesY; ++ty) {
         for (int tx = 0; tx < tilesX; ++tx) {
             int tileIdx = ty * tilesX + tx;
@@ -111,13 +132,11 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
                 }
 
                 case TileMode::COPY: {
-                    // Read motion vector
                     int8_t mvX = static_cast<int8_t>(bs.readU8());
                     int16_t mvY = static_cast<int16_t>(bs.readU16());
                     if (bs.hasError()) return false;
 
                     if (hasRef_) {
-                        // Copy from reference with motion vector offset
                         for (int row = 0; row < th; ++row) {
                             int srcY = py + row + mvY;
                             int srcX = px + mvX;
@@ -136,39 +155,115 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
                     break;
                 }
 
-                case TileMode::LOSSLESS: {
-                    if (!tileDecoder_.decodeLossless(bs, outTile, out.stride,
-                                                     tw, th,
-                                                     nullptr, nullptr, nullptr,
-                                                     nullptr, nullptr, nullptr,
-                                                     0, 0, 0)) {
-                        LOG_WARN("OmniCodec: lossless tile decode failed at (%d,%d)", tx, ty);
-                        return false;
-                    }
+                default:
+                    // LOSSLESS, NEAR_LOSSLESS, LOSSY — collect for parallel decode
+                    encodedTiles.push_back({tileIdx, tx, ty, px, py, tw, th, tileModes[tileIdx]});
                     break;
-                }
-
-                case TileMode::NEAR_LOSSLESS: {
-                    if (!tileDecoder_.decodeNearLossless(bs, outTile, out.stride,
-                                                         tw, th,
-                                                         nullptr, nullptr, nullptr,
-                                                         nullptr, nullptr, nullptr,
-                                                         0, 0, 0)) {
-                        LOG_WARN("OmniCodec: near-lossless tile decode failed at (%d,%d)", tx, ty);
-                        return false;
-                    }
-                    break;
-                }
-
-                case TileMode::LOSSY: {
-                    if (!tileDecoder_.decodeLossy(bs, outTile, out.stride, tw, th)) {
-                        LOG_WARN("OmniCodec: lossy tile decode failed at (%d,%d)", tx, ty);
-                        return false;
-                    }
-                    break;
-                }
             }
         }
+    }
+
+    // Read tile data size table
+    uint16_t numEncodedTiles = bs.readU16();
+    if (bs.hasError()) return false;
+
+    if (static_cast<size_t>(numEncodedTiles) != encodedTiles.size()) {
+        LOG_WARN("OmniCodec: tile count mismatch: expected %zu, got %u",
+                 encodedTiles.size(), numEncodedTiles);
+        return false;
+    }
+
+    // Read per-tile data sizes
+    std::vector<uint32_t> tileSizes(numEncodedTiles);
+    for (uint16_t i = 0; i < numEncodedTiles; ++i) {
+        tileSizes[i] = bs.readU32();
+        if (bs.hasError()) return false;
+    }
+
+    // Compute byte offsets for each tile's data within the remaining bitstream
+    size_t tileDataStart = bs.position();
+    std::vector<size_t> tileOffsets(numEncodedTiles);
+    size_t offset = tileDataStart;
+    for (uint16_t i = 0; i < numEncodedTiles; ++i) {
+        tileOffsets[i] = offset;
+        offset += tileSizes[i];
+    }
+
+    // Verify we have enough data
+    if (offset > size) {
+        LOG_WARN("OmniCodec: tile data extends beyond packet (need %zu, have %zu)", offset, size);
+        return false;
+    }
+
+    // Pass 2 (parallel): Decode LOSSLESS/NEAR_LOSSLESS/LOSSY tiles
+    std::atomic<bool> decodeError{false};
+
+    if (numEncodedTiles > 0) {
+        std::vector<std::future<void>> futures;
+        futures.reserve(numEncodedTiles);
+
+        for (uint16_t i = 0; i < numEncodedTiles; ++i) {
+            futures.push_back(threadPool_->submit([this, i, &encodedTiles, &tileOffsets,
+                                                    &tileSizes, data, &out, &decodeError]() {
+                if (decodeError.load(std::memory_order_relaxed)) return;
+
+                const auto& tile = encodedTiles[i];
+
+                // Each tile gets its own BitstreamReader pointing to its data slice
+                BitstreamReader tileBs(data + tileOffsets[i], tileSizes[i]);
+
+                uint8_t* outTile = out.data.data() + tile.py * out.stride + tile.px * 4;
+
+                // Use thread-local decoder index
+                thread_local size_t tlDecIdx = []() {
+                    static std::atomic<size_t> counter{0};
+                    return counter.fetch_add(1, std::memory_order_relaxed);
+                }();
+                size_t decIdx = tlDecIdx % numThreads_;
+                TileDecoder& dec = tileDecoders_[decIdx];
+
+                bool ok = false;
+                switch (tile.mode) {
+                    case TileMode::LOSSLESS:
+                        ok = dec.decodeLossless(tileBs, outTile, out.stride,
+                                                tile.tw, tile.th,
+                                                nullptr, nullptr, nullptr,
+                                                nullptr, nullptr, nullptr,
+                                                0, 0, 0);
+                        break;
+
+                    case TileMode::NEAR_LOSSLESS:
+                        ok = dec.decodeNearLossless(tileBs, outTile, out.stride,
+                                                    tile.tw, tile.th,
+                                                    nullptr, nullptr, nullptr,
+                                                    nullptr, nullptr, nullptr,
+                                                    0, 0, 0);
+                        break;
+
+                    case TileMode::LOSSY:
+                        ok = dec.decodeLossy(tileBs, outTile, out.stride,
+                                             tile.tw, tile.th);
+                        break;
+
+                    default:
+                        break;
+                }
+
+                if (!ok) {
+                    decodeError.store(true, std::memory_order_relaxed);
+                }
+            }));
+        }
+
+        // Wait for all tile decodes to complete
+        for (auto& f : futures) {
+            f.get();
+        }
+    }
+
+    if (decodeError.load()) {
+        LOG_WARN("OmniCodec: one or more tiles failed to decode");
+        return false;
     }
 
     // Update reference frame

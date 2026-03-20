@@ -1,4 +1,5 @@
 #include "core/simd_dct.h"
+#include "core/simd_utils.h"
 
 #include <algorithm>
 #include <cmath>
@@ -71,6 +72,11 @@ static void idct1D(const int16_t* src, int srcStep, int16_t* dst, int dstStep,
 // 2D DCT via separable 1D transforms: first rows, then columns.
 void dctForward(const int16_t* src, int srcStride,
                 int16_t* dst, int dstStride, int blockSize) {
+    static bool hasAVX2 = cpuSupportsAVX2();
+    if (hasAVX2) {
+        avx2::dctForward(src, srcStride, dst, dstStride, blockSize);
+        return;
+    }
     initCosTables();
 
     const int32_t* cosTable;
@@ -97,6 +103,11 @@ void dctForward(const int16_t* src, int srcStride,
 
 void dctInverse(const int16_t* src, int srcStride,
                 int16_t* dst, int dstStride, int blockSize) {
+    static bool hasAVX2 = cpuSupportsAVX2();
+    if (hasAVX2) {
+        avx2::dctInverse(src, srcStride, dst, dstStride, blockSize);
+        return;
+    }
     initCosTables();
 
     const int32_t* cosTable;

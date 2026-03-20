@@ -3,7 +3,9 @@
 #include "core/logger.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <future>
 
 namespace omnidesk {
 namespace omni {
@@ -20,8 +22,14 @@ bool OmniCodecEncoder::init(const EncoderConfig& cfg) {
     tileSize_ = omniConfig_.tileSize;
     setupTileGrid(width_, height_);
 
-    // Initialize tile encoder
-    tileEncoder_.init(tileSize_);
+    // Initialize thread pool and per-thread tile encoders
+    numThreads_ = std::max(1u, std::thread::hardware_concurrency());
+    threadPool_ = std::make_unique<ThreadPool>(numThreads_);
+
+    tileEncoders_.resize(numThreads_);
+    for (auto& enc : tileEncoders_) {
+        enc.init(tileSize_);
+    }
 
     // Initialize scroll detector
     if (omniConfig_.enableScrollDetection) {
@@ -41,8 +49,8 @@ bool OmniCodecEncoder::init(const EncoderConfig& cfg) {
     keyFrameRequested_ = true;
     frameCounter_ = 0;
 
-    LOG_INFO("OmniCodec encoder initialized: %dx%d, tile=%d, grid=%dx%d",
-             width_, height_, tileSize_, tilesX_, tilesY_);
+    LOG_INFO("OmniCodec encoder initialized: %dx%d, tile=%d, grid=%dx%d, threads=%zu",
+             width_, height_, tileSize_, tilesX_, tilesY_, numThreads_);
     return true;
 }
 
@@ -193,59 +201,120 @@ bool OmniCodecEncoder::encode(const Frame& frame,
     }
     bs.flushBits();
 
-    // Encode each non-SKIP tile
+    // Collect non-SKIP, non-COPY tiles for parallel encoding
+    struct TileJob {
+        int tileIdx;
+        int tx, ty;
+        int px, py;
+        int tw, th;
+    };
+    std::vector<TileJob> encodeJobs;
+    encodeJobs.reserve(numTiles);
+
     for (int ty = 0; ty < tilesY_; ++ty) {
         for (int tx = 0; tx < tilesX_; ++tx) {
             int tileIdx = ty * tilesX_ + tx;
-            if (tileModes[tileIdx] == TileMode::SKIP) continue;
+            TileMode mode = tileModes[tileIdx];
+
+            if (mode == TileMode::SKIP) continue;
+
+            // COPY tiles write directly (small, not worth parallelizing)
+            if (mode == TileMode::COPY) {
+                const auto& sr = scrollResults[tileIdx];
+                bs.writeU8(static_cast<uint8_t>(static_cast<int8_t>(sr.mvX)));
+                bs.writeU16(static_cast<uint16_t>(sr.mvY));
+                continue;
+            }
 
             int px = tx * tileSize_;
             int py = ty * tileSize_;
             int tw = std::min(tileSize_, width_ - px);
             int th = std::min(tileSize_, height_ - py);
+            encodeJobs.push_back({tileIdx, tx, ty, px, py, tw, th});
+        }
+    }
 
-            const uint8_t* tilePtr = frame.data.data() + py * frame.stride + px * 4;
+    // Parallel tile encoding: each job gets its own BitstreamWriter
+    size_t jobCount = encodeJobs.size();
 
-            switch (tileModes[tileIdx]) {
-                case TileMode::COPY: {
-                    // Write motion vector (2 bytes: mvX as int8, mvY as int16)
-                    const auto& sr = scrollResults[tileIdx];
-                    bs.writeU8(static_cast<uint8_t>(static_cast<int8_t>(sr.mvX)));
-                    bs.writeU16(static_cast<uint16_t>(sr.mvY));
-                    break;
+    if (jobCount > 0) {
+        std::vector<BitstreamWriter> tileStreams(jobCount);
+        std::vector<std::future<void>> futures;
+        futures.reserve(jobCount);
+
+        // Assign jobs to thread-local encoders in batches to avoid races.
+        // Jobs are distributed round-robin so each encoder handles non-overlapping jobs.
+        for (size_t j = 0; j < jobCount; ++j) {
+            futures.push_back(threadPool_->submit([this, &encodeJobs, &tileModes,
+                                                    &tileContentTypes, &frame,
+                                                    &tileStreams, j]() {
+                const auto& job = encodeJobs[j];
+                // Thread-local encoder: use one encoder per concurrent slot.
+                // ThreadPool serializes access — each job runs on exactly one thread.
+                // We use thread_local index to pick the encoder safely.
+                thread_local size_t tlEncIdx = []() {
+                    static std::atomic<size_t> counter{0};
+                    return counter.fetch_add(1, std::memory_order_relaxed);
+                }();
+                size_t encIdx = tlEncIdx % numThreads_;
+                TileEncoder& enc = tileEncoders_[encIdx];
+
+                const uint8_t* tilePtr = frame.data.data() +
+                    job.py * frame.stride + job.px * 4;
+                BitstreamWriter& tileBs = tileStreams[j];
+
+                switch (tileModes[job.tileIdx]) {
+                    case TileMode::LOSSLESS:
+                        enc.encodeLossless(tilePtr, frame.stride,
+                                           job.tw, job.th,
+                                           nullptr, nullptr, nullptr,
+                                           nullptr, nullptr, nullptr,
+                                           0, 0, 0, tileBs);
+                        break;
+
+                    case TileMode::NEAR_LOSSLESS:
+                        enc.encodeNearLossless(tilePtr, frame.stride,
+                                               job.tw, job.th,
+                                               nullptr, nullptr, nullptr,
+                                               nullptr, nullptr, nullptr,
+                                               0, 0, 0,
+                                               omniConfig_.nearLosslessMaxError, tileBs);
+                        break;
+
+                    case TileMode::LOSSY: {
+                        int qp = getTileQP(tileContentTypes[job.tileIdx]);
+                        enc.encodeLossy(tilePtr, frame.stride,
+                                        job.tw, job.th, qp, tileBs);
+                        break;
+                    }
+
+                    default:
+                        break;
                 }
+            }));
+        }
 
-                case TileMode::LOSSLESS: {
-                    // Use tile encoder with neighbor context (simplified: no cross-tile prediction for now)
-                    tileEncoder_.encodeLossless(tilePtr, frame.stride,
-                                                tw, th,
-                                                nullptr, nullptr, nullptr,
-                                                nullptr, nullptr, nullptr,
-                                                0, 0, 0, bs);
-                    break;
-                }
+        // Wait for all tile encoding to complete
+        for (auto& f : futures) {
+            f.get();
+        }
 
-                case TileMode::NEAR_LOSSLESS: {
-                    tileEncoder_.encodeNearLossless(tilePtr, frame.stride,
-                                                    tw, th,
-                                                    nullptr, nullptr, nullptr,
-                                                    nullptr, nullptr, nullptr,
-                                                    0, 0, 0,
-                                                    omniConfig_.nearLosslessMaxError, bs);
-                    break;
-                }
-
-                case TileMode::LOSSY: {
-                    int qp = getTileQP(tileContentTypes[tileIdx]);
-                    tileEncoder_.encodeLossy(tilePtr, frame.stride,
-                                             tw, th, qp, bs);
-                    break;
-                }
-
-                default:
-                    break;
+        // Merge tile bitstreams sequentially (preserves decode order)
+        // Write tile data sizes first so decoder can seek to each tile
+        // Format: [numEncodedTiles:u16] [size0:u32] [size1:u32] ... [data0] [data1] ...
+        bs.writeU16(static_cast<uint16_t>(jobCount));
+        for (size_t j = 0; j < jobCount; ++j) {
+            bs.writeU32(static_cast<uint32_t>(tileStreams[j].size()));
+        }
+        for (size_t j = 0; j < jobCount; ++j) {
+            const auto& tileData = tileStreams[j].data();
+            if (!tileData.empty()) {
+                bs.writeBytes(tileData.data(), tileData.size());
             }
         }
+    } else {
+        // No encoded tiles — write zero count
+        bs.writeU16(0);
     }
 
     // Update reference frame

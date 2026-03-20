@@ -157,8 +157,21 @@ void predictDC(const int16_t* top, const int16_t* left,
 }
 
 void predictH(const int16_t* left, int width, int height, int16_t* out) {
-    // H prediction is inherently sequential per row; SSE2 helps with fill
+#ifdef OMNIDESK_X86_64
+    for (int y = 0; y < height; ++y) {
+        int16_t val = left ? left[y] : 0;
+        __m128i vval = _mm_set1_epi16(val);
+        int x = 0;
+        for (; x + 7 < width; x += 8) {
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(out + y * width + x), vval);
+        }
+        for (; x < width; ++x) {
+            out[y * width + x] = val;
+        }
+    }
+#else
     predictH_scalar(left, width, height, out);
+#endif
 }
 
 void predictV(const int16_t* top, int width, int height, int16_t* out) {

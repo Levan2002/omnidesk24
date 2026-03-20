@@ -60,6 +60,24 @@ private:
     void encodeResiduals(const uint8_t* symbols, size_t totalSymbols,
                          BitstreamWriter& bs);
 
+    // Encode residual symbols using a pre-built shared frequency table.
+    void encodeResidualsShared(const uint8_t* symbols, size_t totalSymbols,
+                               const RANSSymbol* sharedTable,
+                               BitstreamWriter& bs);
+
+public:
+    // Collect symbol statistics without encoding (for shared table building).
+    void collectStatistics(const uint8_t* bgra, int bgraStride,
+                           int tileW, int tileH, TileMode mode, int maxError, int qp,
+                           uint32_t* counts256);
+
+    // Get the prepared symbol buffer and count from the last collectStatistics call.
+    const uint8_t* lastSymbols() const { return symbolBuf_.data(); }
+    size_t lastSymbolCount() const { return lastSymbolCount_; }
+
+private:
+    size_t lastSymbolCount_ = 0;
+
     // Working buffers
     std::vector<int16_t> yBuf_, coBuf_, cgBuf_;
     std::vector<int16_t> residualBuf_;    // 3 channels

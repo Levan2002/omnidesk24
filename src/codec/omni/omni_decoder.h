@@ -4,7 +4,9 @@
 #include "codec/omni/omni_types.h"
 #include "codec/omni/tile_decoder.h"
 #include "codec/omni/bitstream.h"
+#include "core/thread_pool.h"
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace omnidesk {
@@ -35,8 +37,10 @@ private:
     int refStride_ = 0;
     bool hasRef_ = false;
 
-    // Tile decoder
-    TileDecoder tileDecoder_;
+    // Thread pool and per-thread tile decoders for parallel decoding
+    std::unique_ptr<ThreadPool> threadPool_;
+    std::vector<TileDecoder> tileDecoders_;
+    size_t numThreads_ = 1;
 };
 
 } // namespace omni

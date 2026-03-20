@@ -46,26 +46,29 @@ std::vector<RANSSymbol> buildFrequencyTable(const uint32_t* counts, int alphabet
         scaledSum += scaled[i];
     }
 
-    // Adjust to exactly RANS_SCALE
-    while (scaledSum != RANS_SCALE) {
-        if (scaledSum > RANS_SCALE) {
-            int maxIdx = 0;
-            for (int i = 1; i < alphabetSize; ++i) {
-                if (scaled[i] > scaled[maxIdx]) maxIdx = i;
-            }
-            if (scaled[maxIdx] > 1) {
-                --scaled[maxIdx];
-                --scaledSum;
-            } else {
-                break;
-            }
+    // Adjust to exactly RANS_SCALE — O(alphabetSize) single-pass approach:
+    // Find the symbol with max frequency and adjust it by the full delta.
+    if (scaledSum != RANS_SCALE) {
+        int maxIdx = 0;
+        for (int i = 1; i < alphabetSize; ++i) {
+            if (scaled[i] > scaled[maxIdx]) maxIdx = i;
+        }
+        int32_t delta = static_cast<int32_t>(RANS_SCALE) - static_cast<int32_t>(scaledSum);
+        int32_t newVal = static_cast<int32_t>(scaled[maxIdx]) + delta;
+        if (newVal >= 1) {
+            scaled[maxIdx] = static_cast<uint32_t>(newVal);
         } else {
-            int maxIdx = 0;
-            for (int i = 1; i < alphabetSize; ++i) {
-                if (scaled[i] > scaled[maxIdx]) maxIdx = i;
+            // Fallback: distribute across multiple symbols
+            while (scaledSum > RANS_SCALE) {
+                for (int i = 0; i < alphabetSize && scaledSum > RANS_SCALE; ++i) {
+                    if (scaled[i] > 1) { --scaled[i]; --scaledSum; }
+                }
             }
-            ++scaled[maxIdx];
-            ++scaledSum;
+            while (scaledSum < RANS_SCALE) {
+                for (int i = 0; i < alphabetSize && scaledSum < RANS_SCALE; ++i) {
+                    if (scaled[i] > 0) { ++scaled[i]; ++scaledSum; }
+                }
+            }
         }
     }
 
@@ -141,14 +144,20 @@ void RANSEncoder::encode(const uint8_t* symbols, size_t count,
         putSymbol(state, s, stack);
     }
 
-    // Write final state (4 bytes, big-endian) followed by renorm bytes (reversed)
-    output.push_back(static_cast<uint8_t>((state >> 24) & 0xFF));
-    output.push_back(static_cast<uint8_t>((state >> 16) & 0xFF));
-    output.push_back(static_cast<uint8_t>((state >> 8) & 0xFF));
-    output.push_back(static_cast<uint8_t>(state & 0xFF));
+    // Write final state (4 bytes, big-endian) followed by renorm bytes.
+    // Reserve space and write state + reversed stack in one pass.
+    size_t stateOffset = output.size();
+    output.resize(stateOffset + 4 + stack.size());
+    output[stateOffset + 0] = static_cast<uint8_t>((state >> 24) & 0xFF);
+    output[stateOffset + 1] = static_cast<uint8_t>((state >> 16) & 0xFF);
+    output[stateOffset + 2] = static_cast<uint8_t>((state >> 8) & 0xFF);
+    output[stateOffset + 3] = static_cast<uint8_t>(state & 0xFF);
 
-    // Stack bytes were emitted in reverse decode order; reverse them.
-    output.insert(output.end(), stack.rbegin(), stack.rend());
+    // Copy stack in reverse directly into output (avoids extra allocation)
+    uint8_t* dst = output.data() + stateOffset + 4;
+    for (size_t i = stack.size(); i > 0; --i) {
+        *dst++ = stack[i - 1];
+    }
 }
 
 // ---- RANSDecoder ----

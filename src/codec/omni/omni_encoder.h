@@ -7,6 +7,7 @@
 #include "codec/omni/tile_encoder.h"
 #include "codec/omni/scroll_detector.h"
 #include "diff/content_classifier.h"
+#include "core/thread_pool.h"
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -62,8 +63,12 @@ private:
     std::vector<uint64_t> prevTileHashes_;
     std::vector<uint64_t> currTileHashes_;
 
-    // Tile encoder (with prediction mode selection)
-    TileEncoder tileEncoder_;
+    // Tile encoders -- one per thread for parallel encoding
+    std::vector<TileEncoder> tileEncoders_;
+
+    // Thread pool for parallel tile encoding
+    std::unique_ptr<ThreadPool> threadPool_;
+    size_t numThreads_ = 1;
 
     // Scroll detector for COPY mode
     ScrollDetector scrollDetector_;

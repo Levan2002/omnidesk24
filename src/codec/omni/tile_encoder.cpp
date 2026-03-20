@@ -340,5 +340,109 @@ void TileEncoder::encodeLossy(const uint8_t* bgra, int bgraStride,
     encodeResiduals(symbolBuf_.data(), totalSymbols, bs);
 }
 
+void TileEncoder::encodeResidualsShared(const uint8_t* symbols, size_t totalSymbols,
+                                         const RANSSymbol* sharedTable,
+                                         BitstreamWriter& bs) {
+    // rANS encode using the shared table (no frequency table serialization)
+    std::vector<uint8_t> ransData;
+    ransData.reserve(totalSymbols);
+    ransEncoder_.encode(symbols, totalSymbols, sharedTable, 256, ransData);
+
+    // Write only encoded data size and symbol count (no frequency table)
+    bs.flushBits();
+    bs.writeU32(static_cast<uint32_t>(ransData.size()));
+    bs.writeU32(static_cast<uint32_t>(totalSymbols));
+    bs.writeBytes(ransData.data(), ransData.size());
+}
+
+void TileEncoder::collectStatistics(const uint8_t* bgra, int bgraStride,
+                                     int tileW, int tileH, TileMode mode,
+                                     int maxError, int qp,
+                                     uint32_t* counts256) {
+    int numPixels = tileW * tileH;
+
+    // Convert to YCoCg-R
+    bgraToYCoCgR(bgra, tileW, tileH, bgraStride,
+                  yBuf_.data(), coBuf_.data(), cgBuf_.data());
+
+    if (mode == TileMode::LOSSY) {
+        // DCT + quantize path
+        int blockSize = 8;
+        if (tileW % 16 == 0 && tileH % 16 == 0) blockSize = 16;
+        else if (tileW % 8 == 0 && tileH % 8 == 0) blockSize = 8;
+        else blockSize = 4;
+
+        int blocksX = tileW / blockSize;
+        int blocksY = tileH / blockSize;
+
+        for (int c = 0; c < 3; ++c) {
+            int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
+            for (int by = 0; by < blocksY; ++by) {
+                for (int bx = 0; bx < blocksX; ++bx) {
+                    int16_t block[16 * 16], coeffs[16 * 16];
+                    for (int y = 0; y < blockSize; ++y)
+                        for (int x = 0; x < blockSize; ++x)
+                            block[y * blockSize + x] = ch[(by * blockSize + y) * tileW + (bx * blockSize + x)];
+                    dctForward(block, blockSize, coeffs, blockSize, blockSize);
+                    quantize(coeffs, blockSize, blockSize, qp);
+                    for (int y = 0; y < blockSize; ++y)
+                        for (int x = 0; x < blockSize; ++x)
+                            ch[(by * blockSize + y) * tileW + (bx * blockSize + x)] = coeffs[y * blockSize + x];
+                }
+            }
+        }
+    } else {
+        // Prediction path (lossless/near-lossless)
+        PredMode yMode = selectPredMode(yBuf_.data(), tileW, tileH, nullptr, nullptr, 0);
+        PredMode coMode = selectPredMode(coBuf_.data(), tileW, tileH, nullptr, nullptr, 0);
+        PredMode cgMode = selectPredMode(cgBuf_.data(), tileW, tileH, nullptr, nullptr, 0);
+
+        int16_t* yRes = residualBuf_.data();
+        int16_t* coRes = residualBuf_.data() + numPixels;
+        int16_t* cgRes = residualBuf_.data() + numPixels * 2;
+
+        applyPrediction(yBuf_.data(), yRes, tileW, tileH, yMode, nullptr, nullptr, 0);
+        applyPrediction(coBuf_.data(), coRes, tileW, tileH, coMode, nullptr, nullptr, 0);
+        applyPrediction(cgBuf_.data(), cgRes, tileW, tileH, cgMode, nullptr, nullptr, 0);
+
+        if (mode == TileMode::NEAR_LOSSLESS && maxError > 0) {
+            int qStep = std::max(1, maxError);
+            for (int c = 0; c < 3; ++c) {
+                int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+                for (int i = 0; i < numPixels; ++i) {
+                    if (res[i] >= 0) res[i] = static_cast<int16_t>((res[i] + qStep / 2) / qStep);
+                    else res[i] = static_cast<int16_t>(-(((-res[i]) + qStep / 2) / qStep));
+                }
+            }
+        }
+
+        // Copy residuals to yBuf/coBuf/cgBuf for symbol generation
+        // (in lossy path, yBuf_ already has quantized DCT coefficients)
+        std::memcpy(yBuf_.data(), residualBuf_.data(), numPixels * sizeof(int16_t));
+        std::memcpy(coBuf_.data(), residualBuf_.data() + numPixels, numPixels * sizeof(int16_t));
+        std::memcpy(cgBuf_.data(), residualBuf_.data() + numPixels * 2, numPixels * sizeof(int16_t));
+    }
+
+    // Two-byte encode into symbolBuf_
+    size_t totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
+    if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+
+    size_t si = 0;
+    for (int c = 0; c < 3; ++c) {
+        const int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
+        for (int i = 0; i < numPixels; ++i) {
+            uint16_t u = static_cast<uint16_t>(ch[i]);
+            symbolBuf_[si++] = static_cast<uint8_t>(u & 0xFF);
+            symbolBuf_[si++] = static_cast<uint8_t>((u >> 8) & 0xFF);
+        }
+    }
+    lastSymbolCount_ = totalSymbols;
+
+    // Accumulate counts
+    for (size_t i = 0; i < totalSymbols; ++i) {
+        counts256[symbolBuf_[i]]++;
+    }
+}
+
 } // namespace omni
 } // namespace omnidesk

@@ -102,6 +102,29 @@ bool TileDecoder::decodeResiduals(BitstreamReader& bs, size_t totalSymbols) {
     return true;
 }
 
+bool TileDecoder::decodeResidualsShared(BitstreamReader& bs, size_t totalSymbols,
+                                         const RANSDecodeEntry* sharedDecodeTable) {
+    // Read rANS encoded data (no frequency table — use shared decode table)
+    uint32_t ransSize = bs.readU32();
+    uint32_t symCount = bs.readU32();
+    if (bs.hasError() || symCount != totalSymbols) return false;
+
+    std::vector<uint8_t> ransData(ransSize);
+    bs.readBytes(ransData.data(), ransSize);
+    if (bs.hasError()) return false;
+
+    if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+
+    if (!ransDecoder_.decode(ransData.data(), ransData.size(),
+                              sharedDecodeTable, totalSymbols,
+                              symbolBuf_.data())) {
+        LOG_WARN("TileDecoder: shared rANS decode failed");
+        return false;
+    }
+
+    return true;
+}
+
 bool TileDecoder::decodeLossless(BitstreamReader& bs, uint8_t* bgra, int bgraStride,
                                   int tileW, int tileH,
                                   const int16_t* topY, const int16_t* topCo,
