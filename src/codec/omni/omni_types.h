@@ -54,7 +54,7 @@ struct OmniFrameHeader {
     uint32_t frameId = 0;
     uint16_t width = 0;
     uint16_t height = 0;
-    uint8_t flags = 0;       // bit0: keyFrame, bit1: goldenRef, bit2: usesSubTiles
+    uint8_t flags = 0;       // bit0: keyFrame, bit1: goldenRef, bit2: usesSubTiles, bit3: sharedFreqTable
     uint8_t tileSize = 64;
     uint16_t tilesX = 0;
     uint16_t tilesY = 0;
@@ -63,6 +63,9 @@ struct OmniFrameHeader {
 
     bool isKeyFrame() const { return (flags & 0x01) != 0; }
     void setKeyFrame(bool v) { if (v) flags |= 0x01; else flags &= ~0x01; }
+
+    bool hasSharedFreqTable() const { return (flags & 0x08) != 0; }
+    void setSharedFreqTable(bool v) { if (v) flags |= 0x08; else flags &= ~0x08; }
 
     void serialize(uint8_t* buf) const {
         writeU32(buf + 0, magic);

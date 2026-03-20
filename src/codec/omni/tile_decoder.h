@@ -17,6 +17,10 @@ public:
 
     void init(int maxTileSize);
 
+    // Set a shared decode table for rANS decoding (skips per-tile table reading).
+    void setSharedDecodeTable(const RANSDecodeEntry* table) { sharedDecodeTable_ = table; }
+    void clearSharedDecodeTable() { sharedDecodeTable_ = nullptr; }
+
     // Decode a lossless tile from the bitstream.
     bool decodeLossless(BitstreamReader& bs, uint8_t* bgra, int bgraStride,
                         int tileW, int tileH,
@@ -58,6 +62,7 @@ private:
     std::vector<int16_t> predBuf_;
     std::vector<uint8_t> symbolBuf_;
 
+    const RANSDecodeEntry* sharedDecodeTable_ = nullptr;
     RANSDecoder ransDecoder_;
 };
 

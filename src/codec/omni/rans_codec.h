@@ -55,6 +55,12 @@ public:
                 const RANSSymbol* freqTable, int alphabetSize,
                 std::vector<uint8_t>& output);
 
+    // 4-way interleaved encode for higher throughput.
+    // Uses 4 independent rANS states to hide decode latency.
+    void encodeInterleaved(const uint8_t* symbols, size_t count,
+                           const RANSSymbol* freqTable, int alphabetSize,
+                           std::vector<uint8_t>& output);
+
     void reset();
 
 private:
@@ -77,6 +83,11 @@ public:
     bool decode(const uint8_t* data, size_t dataSize,
                 const RANSDecodeEntry* decodeTable,
                 size_t count, uint8_t* output);
+
+    // 4-way interleaved decode (matches encodeInterleaved).
+    bool decodeInterleaved(const uint8_t* data, size_t dataSize,
+                           const RANSDecodeEntry* decodeTable,
+                           size_t count, uint8_t* output);
 
     void reset();
 

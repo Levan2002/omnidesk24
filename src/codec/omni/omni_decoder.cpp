@@ -156,11 +156,38 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
                 }
 
                 default:
-                    // LOSSLESS, NEAR_LOSSLESS, LOSSY — collect for parallel decode
                     encodedTiles.push_back({tileIdx, tx, ty, px, py, tw, th, tileModes[tileIdx]});
                     break;
             }
         }
+    }
+
+    // Read shared frequency table (if present in header flags)
+    bool useSharedTable = hdr.hasSharedFreqTable();
+    std::vector<RANSSymbol> sharedFreqTable;
+    std::vector<RANSDecodeEntry> sharedDecodeTable;
+
+    if (useSharedTable) {
+        uint16_t numNonZero = bs.readU16();
+        if (bs.hasError()) return false;
+
+        sharedFreqTable.resize(256, {0, 0});
+        for (int i = 0; i < numNonZero; ++i) {
+            uint8_t sym = bs.readU8();
+            uint16_t freq = bs.readU16();
+            sharedFreqTable[sym].freq = freq;
+            if (bs.hasError()) return false;
+        }
+
+        // Rebuild cumulative frequencies
+        uint16_t cumFreq = 0;
+        for (int i = 0; i < 256; ++i) {
+            sharedFreqTable[i].cumFreq = cumFreq;
+            cumFreq += sharedFreqTable[i].freq;
+        }
+
+        // Build decode table once for all tiles
+        sharedDecodeTable = buildDecodeTable(sharedFreqTable, 256);
     }
 
     // Read tile data size table
@@ -173,14 +200,12 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
         return false;
     }
 
-    // Read per-tile data sizes
     std::vector<uint32_t> tileSizes(numEncodedTiles);
     for (uint16_t i = 0; i < numEncodedTiles; ++i) {
         tileSizes[i] = bs.readU32();
         if (bs.hasError()) return false;
     }
 
-    // Compute byte offsets for each tile's data within the remaining bitstream
     size_t tileDataStart = bs.position();
     std::vector<size_t> tileOffsets(numEncodedTiles);
     size_t offset = tileDataStart;
@@ -189,13 +214,19 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
         offset += tileSizes[i];
     }
 
-    // Verify we have enough data
     if (offset > size) {
         LOG_WARN("OmniCodec: tile data extends beyond packet (need %zu, have %zu)", offset, size);
         return false;
     }
 
-    // Pass 2 (parallel): Decode LOSSLESS/NEAR_LOSSLESS/LOSSY tiles
+    // Pass 2 (parallel): Decode tiles with shared decode table
+    // Set shared decode table on all decoders
+    if (useSharedTable && !sharedDecodeTable.empty()) {
+        for (auto& dec : tileDecoders_) {
+            dec.setSharedDecodeTable(sharedDecodeTable.data());
+        }
+    }
+
     std::atomic<bool> decodeError{false};
 
     if (numEncodedTiles > 0) {
@@ -208,13 +239,9 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
                 if (decodeError.load(std::memory_order_relaxed)) return;
 
                 const auto& tile = encodedTiles[i];
-
-                // Each tile gets its own BitstreamReader pointing to its data slice
                 BitstreamReader tileBs(data + tileOffsets[i], tileSizes[i]);
-
                 uint8_t* outTile = out.data.data() + tile.py * out.stride + tile.px * 4;
 
-                // Use thread-local decoder index
                 thread_local size_t tlDecIdx = []() {
                     static std::atomic<size_t> counter{0};
                     return counter.fetch_add(1, std::memory_order_relaxed);
@@ -255,10 +282,12 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
             }));
         }
 
-        // Wait for all tile decodes to complete
-        for (auto& f : futures) {
-            f.get();
-        }
+        for (auto& f : futures) f.get();
+    }
+
+    // Clear shared decode table
+    for (auto& dec : tileDecoders_) {
+        dec.clearSharedDecodeTable();
     }
 
     if (decodeError.load()) {

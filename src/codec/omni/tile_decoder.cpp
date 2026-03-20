@@ -58,7 +58,12 @@ void TileDecoder::inversePrediction(const int16_t* residual, int16_t* out,
 }
 
 bool TileDecoder::decodeResiduals(BitstreamReader& bs, size_t totalSymbols) {
-    // Read frequency table
+    // If a shared decode table is set, use it (no per-tile freq table in stream)
+    if (sharedDecodeTable_) {
+        return decodeResidualsShared(bs, totalSymbols, sharedDecodeTable_);
+    }
+
+    // Read per-tile frequency table
     uint16_t numNonZero = bs.readU16();
     if (bs.hasError()) return false;
 
@@ -89,13 +94,13 @@ bool TileDecoder::decodeResiduals(BitstreamReader& bs, size_t totalSymbols) {
     bs.readBytes(ransData.data(), ransSize);
     if (bs.hasError()) return false;
 
-    // rANS decode
+    // 4-way interleaved rANS decode
     if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
 
-    if (!ransDecoder_.decode(ransData.data(), ransData.size(),
-                              decodeTable.data(), totalSymbols,
-                              symbolBuf_.data())) {
-        LOG_WARN("TileDecoder: rANS decode failed");
+    if (!ransDecoder_.decodeInterleaved(ransData.data(), ransData.size(),
+                                         decodeTable.data(), totalSymbols,
+                                         symbolBuf_.data())) {
+        LOG_WARN("TileDecoder: rANS interleaved decode failed");
         return false;
     }
 
@@ -115,10 +120,10 @@ bool TileDecoder::decodeResidualsShared(BitstreamReader& bs, size_t totalSymbols
 
     if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
 
-    if (!ransDecoder_.decode(ransData.data(), ransData.size(),
-                              sharedDecodeTable, totalSymbols,
-                              symbolBuf_.data())) {
-        LOG_WARN("TileDecoder: shared rANS decode failed");
+    if (!ransDecoder_.decodeInterleaved(ransData.data(), ransData.size(),
+                                         sharedDecodeTable, totalSymbols,
+                                         symbolBuf_.data())) {
+        LOG_WARN("TileDecoder: shared rANS interleaved decode failed");
         return false;
     }
 

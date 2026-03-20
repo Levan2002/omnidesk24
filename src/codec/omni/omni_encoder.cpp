@@ -128,13 +128,14 @@ bool OmniCodecEncoder::encode(const Frame& frame,
 
     BitstreamWriter bs(width_ * height_);
 
-    // Write frame header
+    // Write frame header (with shared freq table flag)
     OmniFrameHeader hdr;
     hdr.magic = OMNI_MAGIC;
     hdr.frameId = ++frameCounter_;
     hdr.width = static_cast<uint16_t>(width_);
     hdr.height = static_cast<uint16_t>(height_);
     hdr.setKeyFrame(isKeyFrame);
+    hdr.setSharedFreqTable(true);
     hdr.tileSize = static_cast<uint8_t>(tileSize_);
     hdr.tilesX = static_cast<uint16_t>(tilesX_);
     hdr.tilesY = static_cast<uint16_t>(tilesY_);
@@ -150,8 +151,7 @@ bool OmniCodecEncoder::encode(const Frame& frame,
 
     // Content classification for mode decision
     contentClassifier_.updateTemporalState(
-        // Build temp frames for classifier -- reuse refFrame_ as prev
-        Frame{}, frame);  // prev frame not available as Frame here; skip temporal
+        Frame{}, frame);
 
     // Compute tile hashes and decide modes
     int numTiles = tilesX_ * tilesY_;
@@ -170,14 +170,12 @@ bool OmniCodecEncoder::encode(const Frame& frame,
             const uint8_t* tilePtr = frame.data.data() + py * frame.stride + px * 4;
             currTileHashes_[tileIdx] = computeTileHash(tilePtr, frame.stride, tw, th);
 
-            // Skip detection
             if (!isKeyFrame && hasRef_ &&
                 currTileHashes_[tileIdx] == prevTileHashes_[tileIdx]) {
                 tileModes[tileIdx] = TileMode::SKIP;
                 continue;
             }
 
-            // Scroll detection
             bool isScrolled = false;
             if (!isKeyFrame && hasRef_ && omniConfig_.enableScrollDetection) {
                 scrollResults[tileIdx] = scrollDetector_.detectTileScroll(
@@ -185,12 +183,9 @@ bool OmniCodecEncoder::encode(const Frame& frame,
                 isScrolled = scrollResults[tileIdx].detected;
             }
 
-            // Content classification
             Rect tileRect{px, py, tw, th};
             ContentType ct = contentClassifier_.classify(frame, tileRect);
             tileContentTypes[tileIdx] = ct;
-
-            // Mode decision
             tileModes[tileIdx] = decideTileMode(ct, isScrolled);
         }
     }
@@ -201,7 +196,7 @@ bool OmniCodecEncoder::encode(const Frame& frame,
     }
     bs.flushBits();
 
-    // Collect non-SKIP, non-COPY tiles for parallel encoding
+    // Collect encode-candidate tiles and write COPY MVs
     struct TileJob {
         int tileIdx;
         int tx, ty;
@@ -218,7 +213,6 @@ bool OmniCodecEncoder::encode(const Frame& frame,
 
             if (mode == TileMode::SKIP) continue;
 
-            // COPY tiles write directly (small, not worth parallelizing)
             if (mode == TileMode::COPY) {
                 const auto& sr = scrollResults[tileIdx];
                 bs.writeU8(static_cast<uint8_t>(static_cast<int8_t>(sr.mvX)));
@@ -234,74 +228,132 @@ bool OmniCodecEncoder::encode(const Frame& frame,
         }
     }
 
-    // Parallel tile encoding: each job gets its own BitstreamWriter
     size_t jobCount = encodeJobs.size();
 
     if (jobCount > 0) {
+        // ---- Phase 1: Parallel statistics collection ----
+        // Each thread accumulates into its own count array to avoid contention.
+        std::vector<std::vector<uint32_t>> perThreadCounts(numThreads_,
+            std::vector<uint32_t>(256, 0));
+        {
+            std::vector<std::future<void>> futures;
+            futures.reserve(jobCount);
+
+            for (size_t j = 0; j < jobCount; ++j) {
+                futures.push_back(threadPool_->submit([this, &encodeJobs, &tileModes,
+                                                        &tileContentTypes, &frame,
+                                                        &perThreadCounts, j]() {
+                    const auto& job = encodeJobs[j];
+                    thread_local size_t tlEncIdx = []() {
+                        static std::atomic<size_t> counter{0};
+                        return counter.fetch_add(1, std::memory_order_relaxed);
+                    }();
+                    size_t encIdx = tlEncIdx % numThreads_;
+                    TileEncoder& enc = tileEncoders_[encIdx];
+
+                    const uint8_t* tilePtr = frame.data.data() +
+                        job.py * frame.stride + job.px * 4;
+
+                    int qp = getTileQP(tileContentTypes[job.tileIdx]);
+                    enc.collectStatistics(tilePtr, frame.stride, job.tw, job.th,
+                                          tileModes[job.tileIdx],
+                                          omniConfig_.nearLosslessMaxError, qp,
+                                          perThreadCounts[encIdx].data());
+                }));
+            }
+            for (auto& f : futures) f.get();
+        }
+
+        // Merge per-thread counts
+        uint32_t globalCounts[256] = {};
+        for (size_t t = 0; t < numThreads_; ++t) {
+            for (int i = 0; i < 256; ++i) {
+                globalCounts[i] += perThreadCounts[t][i];
+            }
+        }
+
+        // Build shared frequency table
+        auto sharedFreqTable = buildFrequencyTable(globalCounts, 256);
+
+        // Write shared frequency table to bitstream
+        uint16_t numNonZero = 0;
+        for (int i = 0; i < 256; ++i) {
+            if (sharedFreqTable[i].freq > 0) ++numNonZero;
+        }
+        bs.writeU16(numNonZero);
+        for (int i = 0; i < 256; ++i) {
+            if (sharedFreqTable[i].freq > 0) {
+                bs.writeU8(static_cast<uint8_t>(i));
+                bs.writeU16(sharedFreqTable[i].freq);
+            }
+        }
+
+        // Set shared table on all encoders
+        for (auto& enc : tileEncoders_) {
+            enc.setSharedFreqTable(sharedFreqTable.data());
+        }
+
+        // ---- Phase 2: Parallel tile encoding with shared table ----
+        // Uses nullptr context (consistent with Phase 1 statistics) for optimal
+        // shared table compression. Cross-tile prediction context is not used
+        // here because it would cause a distribution mismatch with the shared table.
         std::vector<BitstreamWriter> tileStreams(jobCount);
-        std::vector<std::future<void>> futures;
-        futures.reserve(jobCount);
+        {
+            std::vector<std::future<void>> encodeFutures;
+            encodeFutures.reserve(jobCount);
 
-        // Assign jobs to thread-local encoders in batches to avoid races.
-        // Jobs are distributed round-robin so each encoder handles non-overlapping jobs.
-        for (size_t j = 0; j < jobCount; ++j) {
-            futures.push_back(threadPool_->submit([this, &encodeJobs, &tileModes,
-                                                    &tileContentTypes, &frame,
-                                                    &tileStreams, j]() {
-                const auto& job = encodeJobs[j];
-                // Thread-local encoder: use one encoder per concurrent slot.
-                // ThreadPool serializes access — each job runs on exactly one thread.
-                // We use thread_local index to pick the encoder safely.
-                thread_local size_t tlEncIdx = []() {
-                    static std::atomic<size_t> counter{0};
-                    return counter.fetch_add(1, std::memory_order_relaxed);
-                }();
-                size_t encIdx = tlEncIdx % numThreads_;
-                TileEncoder& enc = tileEncoders_[encIdx];
+            for (size_t j = 0; j < jobCount; ++j) {
+                encodeFutures.push_back(threadPool_->submit([this, &encodeJobs, &tileModes,
+                                                              &tileContentTypes, &frame,
+                                                              &tileStreams, j]() {
+                    const auto& job = encodeJobs[j];
+                    thread_local size_t tlEncIdx = []() {
+                        static std::atomic<size_t> counter{0};
+                        return counter.fetch_add(1, std::memory_order_relaxed);
+                    }();
+                    size_t encIdx = tlEncIdx % numThreads_;
+                    TileEncoder& enc = tileEncoders_[encIdx];
 
-                const uint8_t* tilePtr = frame.data.data() +
-                    job.py * frame.stride + job.px * 4;
-                BitstreamWriter& tileBs = tileStreams[j];
+                    const uint8_t* tilePtr = frame.data.data() +
+                        job.py * frame.stride + job.px * 4;
+                    BitstreamWriter& tileBs = tileStreams[j];
 
-                switch (tileModes[job.tileIdx]) {
-                    case TileMode::LOSSLESS:
-                        enc.encodeLossless(tilePtr, frame.stride,
-                                           job.tw, job.th,
-                                           nullptr, nullptr, nullptr,
-                                           nullptr, nullptr, nullptr,
-                                           0, 0, 0, tileBs);
-                        break;
-
-                    case TileMode::NEAR_LOSSLESS:
-                        enc.encodeNearLossless(tilePtr, frame.stride,
-                                               job.tw, job.th,
+                    switch (tileModes[job.tileIdx]) {
+                        case TileMode::LOSSLESS:
+                            enc.encodeLossless(tilePtr, frame.stride, job.tw, job.th,
                                                nullptr, nullptr, nullptr,
                                                nullptr, nullptr, nullptr,
-                                               0, 0, 0,
-                                               omniConfig_.nearLosslessMaxError, tileBs);
-                        break;
+                                               0, 0, 0, tileBs);
+                            break;
 
-                    case TileMode::LOSSY: {
-                        int qp = getTileQP(tileContentTypes[job.tileIdx]);
-                        enc.encodeLossy(tilePtr, frame.stride,
-                                        job.tw, job.th, qp, tileBs);
-                        break;
+                        case TileMode::NEAR_LOSSLESS:
+                            enc.encodeNearLossless(tilePtr, frame.stride, job.tw, job.th,
+                                                   nullptr, nullptr, nullptr,
+                                                   nullptr, nullptr, nullptr,
+                                                   0, 0, 0,
+                                                   omniConfig_.nearLosslessMaxError, tileBs);
+                            break;
+
+                        case TileMode::LOSSY: {
+                            int qp = getTileQP(tileContentTypes[job.tileIdx]);
+                            enc.encodeLossy(tilePtr, frame.stride, job.tw, job.th, qp, tileBs);
+                            break;
+                        }
+
+                        default:
+                            break;
                     }
-
-                    default:
-                        break;
-                }
-            }));
+                }));
+            }
+            for (auto& f : encodeFutures) f.get();
         }
 
-        // Wait for all tile encoding to complete
-        for (auto& f : futures) {
-            f.get();
+        // Clear shared table from encoders
+        for (auto& e : tileEncoders_) {
+            e.clearSharedFreqTable();
         }
 
-        // Merge tile bitstreams sequentially (preserves decode order)
-        // Write tile data sizes first so decoder can seek to each tile
-        // Format: [numEncodedTiles:u16] [size0:u32] [size1:u32] ... [data0] [data1] ...
+        // Write tile size table + tile data
         bs.writeU16(static_cast<uint16_t>(jobCount));
         for (size_t j = 0; j < jobCount; ++j) {
             bs.writeU32(static_cast<uint32_t>(tileStreams[j].size()));
@@ -313,8 +365,9 @@ bool OmniCodecEncoder::encode(const Frame& frame,
             }
         }
     } else {
-        // No encoded tiles — write zero count
-        bs.writeU16(0);
+        // No encoded tiles — write empty shared table + zero count
+        bs.writeU16(0);  // shared table: 0 non-zero entries
+        bs.writeU16(0);  // 0 encoded tiles
     }
 
     // Update reference frame
@@ -324,9 +377,9 @@ bool OmniCodecEncoder::encode(const Frame& frame,
     std::swap(prevTileHashes_, currTileHashes_);
     hasRef_ = true;
 
-    // Golden frame: periodically save a full reference for error recovery
+    // Golden frame
     uint32_t goldenInterval = static_cast<uint32_t>(
-        omniConfig_.goldenFrameIntervalSec * 30);  // ~30 fps
+        omniConfig_.goldenFrameIntervalSec * 30);
     if (isKeyFrame || (frameCounter_ - lastGoldenFrameId_ >= goldenInterval)) {
         goldenFrame_ = refFrame_;
         lastGoldenFrameId_ = frameCounter_;

@@ -160,6 +160,43 @@ void RANSEncoder::encode(const uint8_t* symbols, size_t count,
     }
 }
 
+void RANSEncoder::encodeInterleaved(const uint8_t* symbols, size_t count,
+                                     const RANSSymbol* freqTable, int /*alphabetSize*/,
+                                     std::vector<uint8_t>& output) {
+    if (count == 0) return;
+
+    // 4 independent rANS states for interleaved encoding.
+    // Symbols are assigned round-robin: symbol[i] uses state[i & 3].
+    uint32_t state[4] = {RANS_L, RANS_L, RANS_L, RANS_L};
+
+    std::vector<uint8_t> stack;
+    stack.reserve(count);
+
+    // Encode in reverse order (rANS is LIFO)
+    for (size_t i = count; i > 0; --i) {
+        size_t idx = i - 1;
+        uint8_t sym = symbols[idx];
+        const RANSSymbol& s = freqTable[sym];
+        if (s.freq == 0) continue;
+        putSymbol(state[idx & 3], s, stack);
+    }
+
+    // Write 4 states (16 bytes, big-endian) followed by reversed stack
+    size_t offset = output.size();
+    output.resize(offset + 16 + stack.size());
+    for (int i = 0; i < 4; ++i) {
+        output[offset + i * 4 + 0] = static_cast<uint8_t>((state[i] >> 24) & 0xFF);
+        output[offset + i * 4 + 1] = static_cast<uint8_t>((state[i] >> 16) & 0xFF);
+        output[offset + i * 4 + 2] = static_cast<uint8_t>((state[i] >> 8) & 0xFF);
+        output[offset + i * 4 + 3] = static_cast<uint8_t>(state[i] & 0xFF);
+    }
+
+    uint8_t* dst = output.data() + offset + 16;
+    for (size_t i = stack.size(); i > 0; --i) {
+        *dst++ = stack[i - 1];
+    }
+}
+
 // ---- RANSDecoder ----
 
 RANSDecoder::RANSDecoder() = default;
@@ -205,6 +242,55 @@ bool RANSDecoder::decode(const uint8_t* data, size_t dataSize,
         getSymbol(state, decodeTable, entry);
         output[i] = static_cast<uint8_t>(entry.symbol);
         state = advance(state, entry, ptr);
+    }
+
+    return true;
+}
+
+bool RANSDecoder::decodeInterleaved(const uint8_t* data, size_t dataSize,
+                                     const RANSDecodeEntry* decodeTable,
+                                     size_t count, uint8_t* output) {
+    if (dataSize < 16 || count == 0) return false;
+
+    // Read 4 initial states (big-endian)
+    const uint8_t* ptr = data;
+    uint32_t state[4];
+    for (int i = 0; i < 4; ++i) {
+        state[i] = (static_cast<uint32_t>(ptr[0]) << 24) |
+                   (static_cast<uint32_t>(ptr[1]) << 16) |
+                   (static_cast<uint32_t>(ptr[2]) << 8) |
+                    static_cast<uint32_t>(ptr[3]);
+        ptr += 4;
+    }
+
+    // Decode in groups of 4 for maximum pipeline utilization.
+    // Table lookups for all 4 states are independent → CPU can pipeline them.
+    size_t i = 0;
+    size_t aligned = count & ~static_cast<size_t>(3);
+    for (; i < aligned; i += 4) {
+        RANSDecodeEntry e0, e1, e2, e3;
+        getSymbol(state[0], decodeTable, e0);
+        getSymbol(state[1], decodeTable, e1);
+        getSymbol(state[2], decodeTable, e2);
+        getSymbol(state[3], decodeTable, e3);
+
+        output[i + 0] = static_cast<uint8_t>(e0.symbol);
+        output[i + 1] = static_cast<uint8_t>(e1.symbol);
+        output[i + 2] = static_cast<uint8_t>(e2.symbol);
+        output[i + 3] = static_cast<uint8_t>(e3.symbol);
+
+        state[0] = advance(state[0], e0, ptr);
+        state[1] = advance(state[1], e1, ptr);
+        state[2] = advance(state[2], e2, ptr);
+        state[3] = advance(state[3], e3, ptr);
+    }
+
+    // Handle remainder (0-3 symbols)
+    for (; i < count; ++i) {
+        RANSDecodeEntry entry;
+        getSymbol(state[i & 3], decodeTable, entry);
+        output[i] = static_cast<uint8_t>(entry.symbol);
+        state[i & 3] = advance(state[i & 3], entry, ptr);
     }
 
     return true;

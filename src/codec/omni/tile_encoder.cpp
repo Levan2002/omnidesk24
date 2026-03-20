@@ -106,7 +106,13 @@ void TileEncoder::applyPrediction(const int16_t* src, int16_t* residual,
 
 void TileEncoder::encodeResiduals(const uint8_t* symbols, size_t totalSymbols,
                                    BitstreamWriter& bs) {
-    // Build frequency table
+    // If a shared frequency table is set, use it (no per-tile table serialization)
+    if (sharedFreqTable_) {
+        encodeResidualsShared(symbols, totalSymbols, sharedFreqTable_, bs);
+        return;
+    }
+
+    // Build per-tile frequency table
     uint32_t counts[256] = {};
     for (size_t i = 0; i < totalSymbols; ++i) {
         counts[symbols[i]]++;
@@ -127,10 +133,10 @@ void TileEncoder::encodeResiduals(const uint8_t* symbols, size_t totalSymbols,
         }
     }
 
-    // rANS encode
+    // 4-way interleaved rANS encode
     std::vector<uint8_t> ransData;
     ransData.reserve(totalSymbols);
-    ransEncoder_.encode(symbols, totalSymbols, freqTable_.data(), 256, ransData);
+    ransEncoder_.encodeInterleaved(symbols, totalSymbols, freqTable_.data(), 256, ransData);
 
     // Write encoded data
     bs.writeU32(static_cast<uint32_t>(ransData.size()));
@@ -343,10 +349,10 @@ void TileEncoder::encodeLossy(const uint8_t* bgra, int bgraStride,
 void TileEncoder::encodeResidualsShared(const uint8_t* symbols, size_t totalSymbols,
                                          const RANSSymbol* sharedTable,
                                          BitstreamWriter& bs) {
-    // rANS encode using the shared table (no frequency table serialization)
+    // 4-way interleaved rANS encode using the shared table (no frequency table serialization)
     std::vector<uint8_t> ransData;
     ransData.reserve(totalSymbols);
-    ransEncoder_.encode(symbols, totalSymbols, sharedTable, 256, ransData);
+    ransEncoder_.encodeInterleaved(symbols, totalSymbols, sharedTable, 256, ransData);
 
     // Write only encoded data size and symbol count (no frequency table)
     bs.flushBits();

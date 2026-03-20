@@ -41,6 +41,10 @@ public:
                      int tileW, int tileH, int qp,
                      BitstreamWriter& bs);
 
+    // Set a shared frequency table for rANS encoding (skips per-tile table).
+    void setSharedFreqTable(const RANSSymbol* table) { sharedFreqTable_ = table; }
+    void clearSharedFreqTable() { sharedFreqTable_ = nullptr; }
+
     // Get the last-encoded YCoCg-R planes (for use as neighbor context).
     const int16_t* lastY() const { return yBuf_.data(); }
     const int16_t* lastCo() const { return coBuf_.data(); }
@@ -77,6 +81,7 @@ public:
 
 private:
     size_t lastSymbolCount_ = 0;
+    const RANSSymbol* sharedFreqTable_ = nullptr;
 
     // Working buffers
     std::vector<int16_t> yBuf_, coBuf_, cgBuf_;
