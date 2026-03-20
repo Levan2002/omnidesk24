@@ -10,6 +10,11 @@ add_executable(omnidesk_tests
     unit/test_user_id.cpp
     unit/test_quality_tuner.cpp
     unit/test_cursor_predictor.cpp
+    unit/test_rans.cpp
+    unit/test_ycocg.cpp
+    unit/test_tile_codec.cpp
+    unit/test_dct.cpp
+    unit/test_scroll_detect.cpp
 )
 
 target_link_libraries(omnidesk_tests PRIVATE

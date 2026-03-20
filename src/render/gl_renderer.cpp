@@ -182,8 +182,27 @@ bool GlRenderer::createShader() {
 }
 
 void GlRenderer::uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyRects) {
-    if (!initialized_ || frame.format != PixelFormat::I420) return;
-    dirty_ = true;  // Mark that we need to re-render the I420->RGB pass
+    if (!initialized_) return;
+
+    // BGRA fast path: upload directly to RGB texture, skip I420→RGB shader
+    if (frame.format == PixelFormat::BGRA || frame.format == PixelFormat::RGBA) {
+        dirty_ = true;
+        needsShader_ = false;  // Already in RGB, no shader conversion needed
+        if (frame.width != frameWidth_ || frame.height != frameHeight_) {
+            resize(frame.width, frame.height);
+        }
+        GLenum pixelFormat = (frame.format == PixelFormat::BGRA) ? GL_BGRA : GL_RGBA;
+        glBindTexture(GL_TEXTURE_2D, rgbTexture_);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, frame.stride / 4);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, frame.width, frame.height,
+                        pixelFormat, GL_UNSIGNED_BYTE, frame.data.data());
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        return;
+    }
+
+    if (frame.format != PixelFormat::I420) return;
+    dirty_ = true;
+    needsShader_ = true;  // I420 needs shader conversion to RGB
 
     if (frame.width != frameWidth_ || frame.height != frameHeight_) {
         resize(frame.width, frame.height);
@@ -287,28 +306,33 @@ bool GlRenderer::render(int viewportWidth, int viewportHeight) {
     if (!initialized_) return false;
 
     bool hadNewFrame = dirty_;
-    // Only run the I420→RGB shader when a new frame was uploaded.
-    // The FBO retains the previous RGB result, so the blit can
-    // keep displaying it without re-rendering — saves massive GPU.
+    // Only run the I420→RGB shader when a new I420 frame was uploaded.
+    // BGRA frames are uploaded directly to rgbTexture_, so they skip
+    // the shader pass entirely.  The FBO retains the previous RGB result,
+    // so the blit can keep displaying it without re-rendering.
     if (dirty_) {
         dirty_ = false;
 
-        // I420→RGB into FBO
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-        glViewport(0, 0, frameWidth_, frameHeight_);
-        glUseProgram(shader_);
+        if (needsShader_) {
+            // I420→RGB into FBO
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+            glViewport(0, 0, frameWidth_, frameHeight_);
+            glUseProgram(shader_);
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, yTexture_);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, uTexture_);
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, vTexture_);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, yTexture_);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, uTexture_);
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, vTexture_);
 
-        glBindVertexArray(vao_);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glBindVertexArray(vao_);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+        // For BGRA: rgbTexture_ was already updated directly in uploadFrame(),
+        // so the FBO blit below will display it correctly.
     }
 
     // Only blit when we have a new frame (avoids redundant GPU work)

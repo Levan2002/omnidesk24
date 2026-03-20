@@ -11,6 +11,7 @@ namespace omnidesk {
 
 // Encoder backend types, in priority order.
 enum class CodecBackend : uint8_t {
+    OmniCodec,  // OmniCodec (custom screen-content codec, highest priority)
     NVENC,      // NVIDIA NVENC (hardware)
     VAAPI,      // VA-API (Linux hardware)
     MF,         // Media Foundation (Windows: Intel QSV, AMD AMF, Intel Arc, etc.)
@@ -22,8 +23,7 @@ enum class CodecBackend : uint8_t {
 class CodecFactory {
 public:
     // Create the best available encoder. Tries backends in priority order:
-    // Windows: NVENC > MF (Intel QSV / AMD AMF / Intel Arc) > OpenH264
-    // Linux:   NVENC > VAAPI > OpenH264
+    // OmniCodec > NVENC > MF/VAAPI > OpenH264
     static std::unique_ptr<IEncoder> createEncoder();
 
     // Create the best available decoder. Same priority order.

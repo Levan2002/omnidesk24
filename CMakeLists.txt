@@ -53,6 +53,9 @@ add_library(omnidesk_core STATIC
     src/core/logger.cpp
     src/core/thread_pool.cpp
     src/core/simd_utils.cpp
+    src/core/simd_ycocg.cpp
+    src/core/simd_predict.cpp
+    src/core/simd_dct.cpp
     src/core/clock.cpp
 )
 target_include_directories(omnidesk_core PUBLIC src)
@@ -72,7 +75,12 @@ endif()
 
 # AVX2 compilation unit (separate flags)
 if(OMNIDESK_X86_64)
-    add_library(omnidesk_avx2 STATIC src/core/simd_utils_avx2.cpp)
+    add_library(omnidesk_avx2 STATIC
+        src/core/simd_utils_avx2.cpp
+        src/core/simd_ycocg_avx2.cpp
+        src/core/simd_predict_avx2.cpp
+        src/core/simd_dct_avx2.cpp
+    )
     target_include_directories(omnidesk_avx2 PUBLIC src)
     target_compile_options(omnidesk_avx2 PRIVATE -mavx2)
     target_link_libraries(omnidesk_core PRIVATE omnidesk_avx2)
@@ -128,6 +136,13 @@ set(CODEC_SOURCES
     src/codec/rate_control.cpp
     src/codec/quality_tuner.cpp
     src/codec/adaptive_quality.cpp
+    src/codec/omni/omni_encoder.cpp
+    src/codec/omni/omni_decoder.cpp
+    src/codec/omni/rans_codec.cpp
+    src/codec/omni/bitstream.cpp
+    src/codec/omni/tile_encoder.cpp
+    src/codec/omni/tile_decoder.cpp
+    src/codec/omni/scroll_detector.cpp
 )
 if(OMNIDESK_PLATFORM_LINUX AND VAAPI_FOUND)
     list(APPEND CODEC_SOURCES src/codec/vaapi_encoder.cpp)

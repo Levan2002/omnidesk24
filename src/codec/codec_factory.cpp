@@ -1,6 +1,8 @@
 #include "codec/codec_factory.h"
 #include "codec/openh264_encoder.h"
 #include "codec/openh264_decoder.h"
+#include "codec/omni/omni_encoder.h"
+#include "codec/omni/omni_decoder.h"
 #include "core/logger.h"
 
 #ifdef OMNIDESK_HAS_NVENC
@@ -79,6 +81,7 @@ bool probeMediaFoundation() {
 
 bool CodecFactory::isBackendAvailable(CodecBackend backend) {
     switch (backend) {
+        case CodecBackend::OmniCodec: return true; // Always available (pure software)
         case CodecBackend::NVENC:    return probeNVENC();
         case CodecBackend::VAAPI:    return probeVAAPI();
         case CodecBackend::MF:       return probeMediaFoundation();
@@ -93,6 +96,7 @@ std::vector<CodecBackend> CodecFactory::availableBackends() {
     // Priority order on Windows: NVENC > MF (Intel QSV / AMD AMF) > OpenH264
     // Priority order on Linux:   NVENC > VAAPI > OpenH264
     const CodecBackend all[] = {
+        CodecBackend::OmniCodec,
         CodecBackend::NVENC,
 #ifdef __linux__
         CodecBackend::VAAPI,
@@ -115,6 +119,7 @@ std::vector<CodecBackend> CodecFactory::availableBackends() {
 
 const char* CodecFactory::backendName(CodecBackend backend) {
     switch (backend) {
+        case CodecBackend::OmniCodec: return "OmniCodec";
         case CodecBackend::NVENC:    return "NVENC";
         case CodecBackend::VAAPI:    return "VA-API";
         case CodecBackend::MF:       return "Media Foundation";
@@ -128,6 +133,7 @@ std::unique_ptr<IEncoder> CodecFactory::createEncoder() {
     // On Windows the effective order is: NVENC > MF (covers Intel QSV, AMD AMF,
     // Intel Arc, and any other Windows HW encoder) > OpenH264 (software).
     const CodecBackend priority[] = {
+        CodecBackend::OmniCodec,
         CodecBackend::NVENC,
 #ifdef __linux__
         CodecBackend::VAAPI,
@@ -156,6 +162,7 @@ std::unique_ptr<IEncoder> CodecFactory::createEncoder() {
 
 std::unique_ptr<IDecoder> CodecFactory::createDecoder() {
     const CodecBackend priority[] = {
+        CodecBackend::OmniCodec,
         CodecBackend::NVENC,
 #ifdef __linux__
         CodecBackend::VAAPI,
@@ -180,6 +187,9 @@ std::unique_ptr<IDecoder> CodecFactory::createDecoder() {
 
 std::unique_ptr<IEncoder> CodecFactory::createEncoder(CodecBackend backend) {
     switch (backend) {
+        case CodecBackend::OmniCodec:
+            return std::make_unique<omni::OmniCodecEncoder>();
+
         case CodecBackend::NVENC:
 #ifdef OMNIDESK_HAS_NVENC
             return std::make_unique<NvencEncoder>();
@@ -210,6 +220,9 @@ std::unique_ptr<IEncoder> CodecFactory::createEncoder(CodecBackend backend) {
 
 std::unique_ptr<IDecoder> CodecFactory::createDecoder(CodecBackend backend) {
     switch (backend) {
+        case CodecBackend::OmniCodec:
+            return std::make_unique<omni::OmniCodecDecoder>();
+
         case CodecBackend::NVENC:
 #ifdef OMNIDESK_HAS_NVENC
             return std::make_unique<NvdecDecoder>();
