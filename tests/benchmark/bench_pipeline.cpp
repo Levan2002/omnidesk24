@@ -13,8 +13,8 @@ static void BM_RingBuffer_PushPop(benchmark::State& state) {
 
     for (auto _ : state) {
         rb.push(42);
-        rb.pop(val);
-        benchmark::DoNotOptimize(val);
+        auto popped = rb.pop();
+        benchmark::DoNotOptimize(popped);
     }
     state.SetItemsProcessed(state.iterations());
 }

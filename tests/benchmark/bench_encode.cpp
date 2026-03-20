@@ -30,7 +30,7 @@ static void BM_OpenH264Encode_720p(benchmark::State& state) {
     cfg.width = 1280;
     cfg.height = 720;
     cfg.maxFps = 60;
-    cfg.bitrateBps = 2000000;
+    cfg.targetBitrateBps = 2000000;
     if (!enc.init(cfg)) {
         state.SkipWithError("Failed to init encoder");
         return;
@@ -59,7 +59,7 @@ static void BM_OpenH264Encode_1080p(benchmark::State& state) {
     cfg.width = 1920;
     cfg.height = 1080;
     cfg.maxFps = 60;
-    cfg.bitrateBps = 4000000;
+    cfg.targetBitrateBps = 4000000;
     if (!enc.init(cfg)) {
         state.SkipWithError("Failed to init encoder");
         return;
@@ -89,7 +89,7 @@ static void BM_OpenH264Decode_1080p(benchmark::State& state) {
     cfg.width = 1920;
     cfg.height = 1080;
     cfg.maxFps = 30;
-    cfg.bitrateBps = 4000000;
+    cfg.targetBitrateBps = 4000000;
     if (!enc.init(cfg)) {
         state.SkipWithError("Failed to init encoder");
         return;

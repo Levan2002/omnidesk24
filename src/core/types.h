@@ -199,6 +199,7 @@ struct EncoderInfo {
     bool supportsSVC = false;         // Temporal scalability
     int32_t maxWidth = 0;
     int32_t maxHeight = 0;
+    PixelFormat preferredInputFormat = PixelFormat::I420;  // OmniCodec prefers BGRA
 };
 
 // Encoder configuration

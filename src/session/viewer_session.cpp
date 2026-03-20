@@ -1,6 +1,7 @@
 #include "session/viewer_session.h"
 #include "codec/codec_factory.h"
 #include "codec/decoder.h"
+#include "codec/omni/omni_types.h"
 #include "render/gl_renderer.h"
 #include "render/cursor_overlay.h"
 #include "render/sharpening.h"
@@ -115,13 +116,25 @@ void ViewerSession::onNalUnit(const uint8_t* data, size_t size) {
         return;  // drop this frame
     }
 
+    // Auto-detect OmniCodec packets by magic number
+    bool isOmniCodec = (size >= 4 &&
+        data[0] == 0x4F && data[1] == 0x43 && data[2] == 0x4F && data[3] == 0x44);
+
     // Lazy-init the decoder on the first NAL unit.
-    // We don't know dimensions from the NAL alone, so use defaults —
-    // OpenH264 will derive the real resolution from the SPS in the bitstream.
-    if (!decoderInitialized_) {
-        // Try OpenH264 first (best compatibility with OpenH264 encoder),
-        // then fall back to MF decoder, then any available decoder.
-        if (!decoder_) {
+    // If OmniCodec is detected, create OmniCodecDecoder; otherwise H.264.
+    if (!decoderInitialized_ || (isOmniCodec && decoderName_ != "OmniCodec")) {
+        if (isOmniCodec) {
+            decoder_ = CodecFactory::createDecoder(CodecBackend::OmniCodec);
+            if (decoder_ && decoder_->init(0, 0)) {
+                decoderName_ = "OmniCodec";
+                LOG_INFO("Using OmniCodec decoder (detected magic 0x4F434F44)");
+            } else {
+                LOG_ERROR("OmniCodec decoder init failed");
+                decoder_.reset();
+                return;
+            }
+        } else if (!decoder_) {
+            // Try OpenH264 first, then MF, then any available
             decoder_ = CodecFactory::createDecoder(CodecBackend::OpenH264);
             if (decoder_ && decoder_->init(0, 0)) {
                 decoderName_ = "OpenH264 (software)";

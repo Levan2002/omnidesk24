@@ -200,24 +200,28 @@ void HostSession::encodeLoop() {
         // Smooth the ratio — used by adaptive quality controller for FPS decisions
         motionRatio_ = motionRatio_ * 0.7f + motionFrac * 0.3f;
 
-        // Convert to I420 for encoding (only for frames that have changes).
-        // Reuse the I420 buffer to avoid allocating a new vector every frame.
-        // convertFrameToI420 calls dst.allocate() which resizes only if needed
-        // (std::vector::resize is a no-op when the size already matches).
-        convertFrameToI420(capturedFrame, reusableI420Frame_);
-        Frame& i420Frame = reusableI420Frame_;
-
-        // Adaptive resolution: resize I420 frame if encode resolution
-        // differs from native capture resolution.
-        // NOTE: we pass i420Frame by const-ref (no move) to preserve the
-        // reusable buffer. When no resize is needed, encode directly from it.
-        Frame resizedFrame;
+        // Check if encoder prefers BGRA (e.g. OmniCodec) to skip I420 conversion
         Frame* encodeFramePtr;
-        if (encodeWidth_ != i420Frame.width || encodeHeight_ != i420Frame.height) {
-            resizeI420(i420Frame, resizedFrame, encodeWidth_, encodeHeight_);
-            encodeFramePtr = &resizedFrame;
+        Frame resizedFrame;
+        auto encInfo = encoder_->getInfo();
+        if (encInfo.preferredInputFormat == PixelFormat::BGRA ||
+            encInfo.preferredInputFormat == PixelFormat::RGBA) {
+            // BGRA fast path: encode directly from captured frame (no color conversion)
+            encodeFramePtr = &capturedFrame;
         } else {
-            encodeFramePtr = &i420Frame;
+            // Convert to I420 for encoding (only for frames that have changes).
+            // Reuse the I420 buffer to avoid allocating a new vector every frame.
+            convertFrameToI420(capturedFrame, reusableI420Frame_);
+            Frame& i420Frame = reusableI420Frame_;
+
+            // Adaptive resolution: resize I420 frame if encode resolution
+            // differs from native capture resolution.
+            if (encodeWidth_ != i420Frame.width || encodeHeight_ != i420Frame.height) {
+                resizeI420(i420Frame, resizedFrame, encodeWidth_, encodeHeight_);
+                encodeFramePtr = &resizedFrame;
+            } else {
+                encodeFramePtr = &i420Frame;
+            }
         }
 
         // Encode

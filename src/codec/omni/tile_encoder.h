@@ -1,0 +1,99 @@
+#pragma once
+
+#include "codec/omni/omni_types.h"
+#include "codec/omni/rans_codec.h"
+#include "codec/omni/bitstream.h"
+#include <cstdint>
+#include <vector>
+
+namespace omnidesk {
+namespace omni {
+
+// Per-tile encoding logic with prediction mode selection.
+// Supports LOSSLESS, NEAR_LOSSLESS (bounded error), and LOSSY (DCT) modes.
+class TileEncoder {
+public:
+    TileEncoder();
+
+    // Initialize for a given maximum tile size.
+    void init(int maxTileSize);
+
+    // Encode a lossless tile. Selects the best prediction mode and writes
+    // the compressed data to the bitstream.
+    void encodeLossless(const uint8_t* bgra, int bgraStride,
+                        int tileW, int tileH,
+                        const int16_t* topY, const int16_t* topCo, const int16_t* topCg,
+                        const int16_t* leftY, const int16_t* leftCo, const int16_t* leftCg,
+                        int16_t topLeftY, int16_t topLeftCo, int16_t topLeftCg,
+                        BitstreamWriter& bs);
+
+    // Encode a near-lossless tile. Like lossless but quantizes residuals
+    // by maxError to improve compression while bounding the per-component error.
+    void encodeNearLossless(const uint8_t* bgra, int bgraStride,
+                            int tileW, int tileH,
+                            const int16_t* topY, const int16_t* topCo, const int16_t* topCg,
+                            const int16_t* leftY, const int16_t* leftCo, const int16_t* leftCg,
+                            int16_t topLeftY, int16_t topLeftCo, int16_t topLeftCg,
+                            int maxError, BitstreamWriter& bs);
+
+    // Encode a lossy tile using DCT + quantization.
+    void encodeLossy(const uint8_t* bgra, int bgraStride,
+                     int tileW, int tileH, int qp,
+                     BitstreamWriter& bs);
+
+    // Set a shared frequency table for rANS encoding (skips per-tile table).
+    void setSharedFreqTable(const RANSSymbol* table) { sharedFreqTable_ = table; }
+    void clearSharedFreqTable() { sharedFreqTable_ = nullptr; }
+
+    // Get the last-encoded YCoCg-R planes (for use as neighbor context).
+    const int16_t* lastY() const { return yBuf_.data(); }
+    const int16_t* lastCo() const { return coBuf_.data(); }
+    const int16_t* lastCg() const { return cgBuf_.data(); }
+
+private:
+    // Select the best prediction mode by trying all modes and picking lowest SAD.
+    PredMode selectPredMode(const int16_t* channel, int w, int h,
+                            const int16_t* top, const int16_t* left, int16_t topLeft);
+
+    // Apply prediction and store residuals.
+    void applyPrediction(const int16_t* src, int16_t* residual,
+                         int w, int h, PredMode mode,
+                         const int16_t* top, const int16_t* left, int16_t topLeft);
+
+    // Encode residual symbols via rANS and write to bitstream.
+    void encodeResiduals(const uint8_t* symbols, size_t totalSymbols,
+                         BitstreamWriter& bs);
+
+    // Encode residual symbols using a pre-built shared frequency table.
+    void encodeResidualsShared(const uint8_t* symbols, size_t totalSymbols,
+                               const RANSSymbol* sharedTable,
+                               BitstreamWriter& bs);
+
+public:
+    // Collect symbol statistics without encoding (for shared table building).
+    void collectStatistics(const uint8_t* bgra, int bgraStride,
+                           int tileW, int tileH, TileMode mode, int maxError, int qp,
+                           uint32_t* counts256);
+
+    // Get the prepared symbol buffer and count from the last collectStatistics call.
+    const uint8_t* lastSymbols() const { return symbolBuf_.data(); }
+    size_t lastSymbolCount() const { return lastSymbolCount_; }
+
+private:
+    size_t lastSymbolCount_ = 0;
+    const RANSSymbol* sharedFreqTable_ = nullptr;
+
+    // Working buffers
+    std::vector<int16_t> yBuf_, coBuf_, cgBuf_;
+    std::vector<int16_t> residualBuf_;    // 3 channels
+    std::vector<int16_t> predBuf_;        // temp for prediction
+    std::vector<int16_t> dctBuf_;         // DCT coefficients
+    std::vector<uint8_t> symbolBuf_;
+    RANSSymbol freqTable_[256];           // pre-allocated, no heap
+    std::vector<uint8_t> ransData_;       // pre-allocated rANS output buffer
+
+    RANSEncoder ransEncoder_;
+};
+
+} // namespace omni
+} // namespace omnidesk

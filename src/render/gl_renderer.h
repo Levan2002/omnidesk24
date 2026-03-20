@@ -14,7 +14,8 @@ public:
 
     bool init(int width, int height);
 
-    // Upload a decoded I420 frame (or just dirty regions)
+    // Upload a decoded frame (I420 or BGRA). BGRA frames skip the I420→RGB
+    // shader and upload directly to the RGB texture.
     void uploadFrame(const Frame& frame, const std::vector<Rect>& dirtyRects = {});
 
     // Render the current frame to screen. Returns true if a new frame was displayed.
@@ -45,7 +46,8 @@ private:
     uint32_t vao_ = 0;
     uint32_t vbo_ = 0;
     bool initialized_ = false;
-    bool dirty_ = false;  // true when new frame uploaded, cleared after render
+    bool dirty_ = false;       // true when new frame uploaded, cleared after render
+    bool needsShader_ = false; // true when I420 upload needs shader conversion
 
     // PBO (Pixel Buffer Object) for async texture upload.
     // Double-buffered: one PBO is being filled by CPU while GPU reads the other.
