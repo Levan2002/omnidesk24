@@ -89,7 +89,8 @@ private:
     std::vector<int16_t> predBuf_;        // temp for prediction
     std::vector<int16_t> dctBuf_;         // DCT coefficients
     std::vector<uint8_t> symbolBuf_;
-    std::vector<RANSSymbol> freqTable_;
+    RANSSymbol freqTable_[256];           // pre-allocated, no heap
+    std::vector<uint8_t> ransData_;       // pre-allocated rANS output buffer
 
     RANSEncoder ransEncoder_;
 };

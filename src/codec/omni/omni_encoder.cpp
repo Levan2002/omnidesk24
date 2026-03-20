@@ -144,117 +144,132 @@ bool OmniCodecEncoder::encode(const Frame& frame,
     hdr.serialize(hdrBuf);
     bs.writeBytes(hdrBuf, OmniFrameHeader::SERIALIZED_SIZE);
 
-    // Update scroll detector reference
-    if (omniConfig_.enableScrollDetection && hasRef_) {
-        scrollDetector_.updateReference(refFrame_.data(), refStride_);
-    }
-
-    // Content classification for mode decision
-    contentClassifier_.updateTemporalState(
-        Frame{}, frame);
-
-    // Compute tile hashes in parallel (batched across threads)
     int numTiles = tilesX_ * tilesY_;
-    std::vector<TileMode> tileModes(numTiles, TileMode::LOSSLESS);
-    std::vector<ScrollResult> scrollResults(numTiles);
-    std::vector<ContentType> tileContentTypes(numTiles, ContentType::UNKNOWN);
 
-    {
-        size_t batchSize = (static_cast<size_t>(numTiles) + numThreads_ - 1) / numThreads_;
-        std::vector<std::future<void>> hashFutures;
-        hashFutures.reserve(numThreads_);
-        for (size_t t = 0; t < numThreads_; ++t) {
-            size_t start = t * batchSize;
-            size_t end = std::min(start + batchSize, static_cast<size_t>(numTiles));
-            if (start >= end) break;
-            hashFutures.push_back(threadPool_->submit([this, &frame, start, end]() {
-                for (size_t tileIdx = start; tileIdx < end; ++tileIdx) {
-                    int tx = static_cast<int>(tileIdx) % tilesX_;
-                    int ty = static_cast<int>(tileIdx) / tilesX_;
-                    int px = tx * tileSize_;
-                    int py = ty * tileSize_;
-                    int tw = std::min(tileSize_, width_ - px);
-                    int th = std::min(tileSize_, height_ - py);
-                    const uint8_t* tilePtr = frame.data.data() + py * frame.stride + px * 4;
-                    currTileHashes_[tileIdx] = computeTileHash(tilePtr, frame.stride, tw, th);
-                }
-            }));
-        }
-        for (auto& f : hashFutures) f.get();
-    }
-
-    // Mode decision (sequential — content classifier may have state)
-    for (int tileIdx = 0; tileIdx < numTiles; ++tileIdx) {
-        if (!isKeyFrame && hasRef_ &&
-            currTileHashes_[tileIdx] == prevTileHashes_[tileIdx]) {
-            tileModes[tileIdx] = TileMode::SKIP;
-            continue;
-        }
-
-        int tx = tileIdx % tilesX_;
-        int ty = tileIdx / tilesX_;
-        int px = tx * tileSize_;
-        int py = ty * tileSize_;
-        int tw = std::min(tileSize_, width_ - px);
-        int th = std::min(tileSize_, height_ - py);
-
-        bool isScrolled = false;
-        if (!isKeyFrame && hasRef_ && omniConfig_.enableScrollDetection) {
-            scrollResults[tileIdx] = scrollDetector_.detectTileScroll(
-                frame.data.data(), frame.stride, tx, ty, tw, th);
-            isScrolled = scrollResults[tileIdx].detected;
-        }
-
-        Rect tileRect{px, py, tw, th};
-        ContentType ct = contentClassifier_.classify(frame, tileRect);
-        tileContentTypes[tileIdx] = ct;
-        tileModes[tileIdx] = decideTileMode(ct, isScrolled);
-    }
-
-    // Write tile mode map (3 bits per tile)
-    for (int i = 0; i < numTiles; ++i) {
-        bs.writeBits(static_cast<uint8_t>(tileModes[i]), 3);
-    }
-    bs.flushBits();
-
-    // Collect encode-candidate tiles and write COPY MVs
     struct TileJob {
         int tileIdx;
         int tx, ty;
         int px, py;
         int tw, th;
     };
+
+    std::vector<TileMode> tileModes(numTiles, TileMode::LOSSLESS);
     std::vector<TileJob> encodeJobs;
     encodeJobs.reserve(numTiles);
 
-    for (int ty = 0; ty < tilesY_; ++ty) {
-        for (int tx = 0; tx < tilesX_; ++tx) {
-            int tileIdx = ty * tilesX_ + tx;
-            TileMode mode = tileModes[tileIdx];
+    if (isKeyFrame) {
+        // Fast keyframe path: skip hash computation and content classification.
+        // All tiles are encoded as LOSSLESS (no SKIP/COPY possible).
+        for (int i = 0; i < numTiles; ++i) {
+            bs.writeBits(static_cast<uint8_t>(TileMode::LOSSLESS), 3);
+        }
+        bs.flushBits();
 
-            if (mode == TileMode::SKIP) continue;
+        for (int ty = 0; ty < tilesY_; ++ty) {
+            for (int tx = 0; tx < tilesX_; ++tx) {
+                int tileIdx = ty * tilesX_ + tx;
+                int px = tx * tileSize_;
+                int py = ty * tileSize_;
+                int tw = std::min(tileSize_, width_ - px);
+                int th = std::min(tileSize_, height_ - py);
+                encodeJobs.push_back({tileIdx, tx, ty, px, py, tw, th});
+            }
+        }
+    } else {
+        // P-frame path: hash, classify, skip/copy detection
+        if (omniConfig_.enableScrollDetection && hasRef_) {
+            scrollDetector_.updateReference(refFrame_.data(), refStride_);
+        }
+        contentClassifier_.updateTemporalState(Frame{}, frame);
 
-            if (mode == TileMode::COPY) {
-                const auto& sr = scrollResults[tileIdx];
-                bs.writeU8(static_cast<uint8_t>(static_cast<int8_t>(sr.mvX)));
-                bs.writeU16(static_cast<uint16_t>(sr.mvY));
+        // Parallel hash computation
+        std::vector<ScrollResult> scrollResults(numTiles);
+        std::vector<ContentType> tileContentTypes(numTiles, ContentType::UNKNOWN);
+        {
+            size_t batchSize = (static_cast<size_t>(numTiles) + numThreads_ - 1) / numThreads_;
+            std::vector<std::future<void>> hashFutures;
+            hashFutures.reserve(numThreads_);
+            for (size_t t = 0; t < numThreads_; ++t) {
+                size_t start = t * batchSize;
+                size_t end = std::min(start + batchSize, static_cast<size_t>(numTiles));
+                if (start >= end) break;
+                hashFutures.push_back(threadPool_->submit([this, &frame, start, end]() {
+                    for (size_t tileIdx = start; tileIdx < end; ++tileIdx) {
+                        int tx = static_cast<int>(tileIdx) % tilesX_;
+                        int ty = static_cast<int>(tileIdx) / tilesX_;
+                        int px = tx * tileSize_;
+                        int py = ty * tileSize_;
+                        int tw = std::min(tileSize_, width_ - px);
+                        int th = std::min(tileSize_, height_ - py);
+                        const uint8_t* tilePtr = frame.data.data() + py * frame.stride + px * 4;
+                        currTileHashes_[tileIdx] = computeTileHash(tilePtr, frame.stride, tw, th);
+                    }
+                }));
+            }
+            for (auto& f : hashFutures) f.get();
+        }
+
+        // Mode decision
+        for (int tileIdx = 0; tileIdx < numTiles; ++tileIdx) {
+            if (hasRef_ && currTileHashes_[tileIdx] == prevTileHashes_[tileIdx]) {
+                tileModes[tileIdx] = TileMode::SKIP;
                 continue;
             }
 
+            int tx = tileIdx % tilesX_;
+            int ty = tileIdx / tilesX_;
             int px = tx * tileSize_;
             int py = ty * tileSize_;
             int tw = std::min(tileSize_, width_ - px);
             int th = std::min(tileSize_, height_ - py);
-            encodeJobs.push_back({tileIdx, tx, ty, px, py, tw, th});
+
+            bool isScrolled = false;
+            if (hasRef_ && omniConfig_.enableScrollDetection) {
+                scrollResults[tileIdx] = scrollDetector_.detectTileScroll(
+                    frame.data.data(), frame.stride, tx, ty, tw, th);
+                isScrolled = scrollResults[tileIdx].detected;
+            }
+
+            Rect tileRect{px, py, tw, th};
+            ContentType ct = contentClassifier_.classify(frame, tileRect);
+            tileContentTypes[tileIdx] = ct;
+            tileModes[tileIdx] = decideTileMode(ct, isScrolled);
+        }
+
+        // Write tile mode map
+        for (int i = 0; i < numTiles; ++i) {
+            bs.writeBits(static_cast<uint8_t>(tileModes[i]), 3);
+        }
+        bs.flushBits();
+
+        // Collect encode-candidate tiles and write COPY MVs
+        for (int ty = 0; ty < tilesY_; ++ty) {
+            for (int tx = 0; tx < tilesX_; ++tx) {
+                int tileIdx = ty * tilesX_ + tx;
+                TileMode mode = tileModes[tileIdx];
+
+                if (mode == TileMode::SKIP) continue;
+
+                if (mode == TileMode::COPY) {
+                    const auto& sr = scrollResults[tileIdx];
+                    bs.writeU8(static_cast<uint8_t>(static_cast<int8_t>(sr.mvX)));
+                    bs.writeU16(static_cast<uint16_t>(sr.mvY));
+                    continue;
+                }
+
+                int px = tx * tileSize_;
+                int py = ty * tileSize_;
+                int tw = std::min(tileSize_, width_ - px);
+                int th = std::min(tileSize_, height_ - py);
+                encodeJobs.push_back({tileIdx, tx, ty, px, py, tw, th});
+            }
         }
     }
 
     size_t jobCount = encodeJobs.size();
 
     if (jobCount > 0) {
-        // Batched parallel tile encoding — submit numThreads_ tasks, each
-        // processing a range of tiles. This minimizes thread pool overhead
-        // (4 task submissions instead of 510 for 1080p).
+        // Batched parallel tile encoding
         std::vector<BitstreamWriter> tileStreams(jobCount);
         {
             size_t batchSize = (jobCount + numThreads_ - 1) / numThreads_;
@@ -267,7 +282,7 @@ bool OmniCodecEncoder::encode(const Frame& frame,
                 if (jStart >= jEnd) break;
 
                 encodeFutures.push_back(threadPool_->submit([this, &encodeJobs, &tileModes,
-                                                              &tileContentTypes, &frame,
+                                                              &frame, isKeyFrame,
                                                               &tileStreams, t, jStart, jEnd]() {
                     TileEncoder& enc = tileEncoders_[t];
 
@@ -276,6 +291,13 @@ bool OmniCodecEncoder::encode(const Frame& frame,
                         const uint8_t* tilePtr = frame.data.data() +
                             job.py * frame.stride + job.px * 4;
                         BitstreamWriter& tileBs = tileStreams[j];
+
+                        // Compute tile hash during encoding (for keyframes that skip
+                        // the separate hash phase, this updates hashes for P-frame SKIP)
+                        if (isKeyFrame) {
+                            currTileHashes_[job.tileIdx] = computeTileHash(
+                                tilePtr, frame.stride, job.tw, job.th);
+                        }
 
                         switch (tileModes[job.tileIdx]) {
                             case TileMode::LOSSLESS:
@@ -294,7 +316,7 @@ bool OmniCodecEncoder::encode(const Frame& frame,
                                 break;
 
                             case TileMode::LOSSY: {
-                                int qp = getTileQP(tileContentTypes[job.tileIdx]);
+                                int qp = getTileQP(ContentType::UNKNOWN);
                                 enc.encodeLossy(tilePtr, frame.stride, job.tw, job.th, qp, tileBs);
                                 break;
                             }

@@ -132,15 +132,36 @@ void TileEncoder::encodeResiduals(const uint8_t* symbols, size_t totalSymbols,
         return;
     }
 
-    // Build per-tile frequency table
+    // Build per-tile frequency table (in-place, no heap allocation)
     uint32_t counts[256] = {};
     for (size_t i = 0; i < totalSymbols; ++i) {
         counts[symbols[i]]++;
     }
-    freqTable_ = buildFrequencyTable(counts, 256);
+
+    // Fast path: if only one unique symbol, write raw (skip rANS entirely)
+    int uniqueCount = 0;
+    uint8_t uniqueSym = 0;
+    for (int i = 0; i < 256; ++i) {
+        if (counts[i] > 0) {
+            ++uniqueCount;
+            uniqueSym = static_cast<uint8_t>(i);
+            if (uniqueCount > 1) break;
+        }
+    }
+
+    bs.flushBits();
+
+    if (uniqueCount <= 1) {
+        // Uniform tile: write marker (numNonZero=0) + the single symbol + count
+        bs.writeU16(0);  // marker for uniform tile
+        bs.writeU8(uniqueSym);
+        bs.writeU32(static_cast<uint32_t>(totalSymbols));
+        return;
+    }
+
+    buildFrequencyTableInPlace(counts, 256, freqTable_);
 
     // Serialize frequency table
-    bs.flushBits();
     uint16_t numNonZero = 0;
     for (int i = 0; i < 256; ++i) {
         if (freqTable_[i].freq > 0) ++numNonZero;
@@ -153,15 +174,15 @@ void TileEncoder::encodeResiduals(const uint8_t* symbols, size_t totalSymbols,
         }
     }
 
-    // 4-way interleaved rANS encode
-    std::vector<uint8_t> ransData;
-    ransData.reserve(totalSymbols);
-    ransEncoder_.encodeInterleaved(symbols, totalSymbols, freqTable_.data(), 256, ransData);
+    // 4-way interleaved rANS encode (pre-allocated output buffer)
+    ransData_.clear();
+    ransData_.reserve(totalSymbols);
+    ransEncoder_.encodeInterleaved(symbols, totalSymbols, freqTable_, 256, ransData_);
 
     // Write encoded data
-    bs.writeU32(static_cast<uint32_t>(ransData.size()));
+    bs.writeU32(static_cast<uint32_t>(ransData_.size()));
     bs.writeU32(static_cast<uint32_t>(totalSymbols));
-    bs.writeBytes(ransData.data(), ransData.size());
+    bs.writeBytes(ransData_.data(), ransData_.size());
 }
 
 void TileEncoder::encodeLossless(const uint8_t* bgra, int bgraStride,
@@ -434,16 +455,15 @@ void TileEncoder::encodeLossy(const uint8_t* bgra, int bgraStride,
 void TileEncoder::encodeResidualsShared(const uint8_t* symbols, size_t totalSymbols,
                                          const RANSSymbol* sharedTable,
                                          BitstreamWriter& bs) {
-    // 4-way interleaved rANS encode using the shared table (no frequency table serialization)
-    std::vector<uint8_t> ransData;
-    ransData.reserve(totalSymbols);
-    ransEncoder_.encodeInterleaved(symbols, totalSymbols, sharedTable, 256, ransData);
+    // 4-way interleaved rANS encode using the shared table (pre-allocated buffer)
+    ransData_.clear();
+    ransData_.reserve(totalSymbols);
+    ransEncoder_.encodeInterleaved(symbols, totalSymbols, sharedTable, 256, ransData_);
 
-    // Write only encoded data size and symbol count (no frequency table)
     bs.flushBits();
-    bs.writeU32(static_cast<uint32_t>(ransData.size()));
+    bs.writeU32(static_cast<uint32_t>(ransData_.size()));
     bs.writeU32(static_cast<uint32_t>(totalSymbols));
-    bs.writeBytes(ransData.data(), ransData.size());
+    bs.writeBytes(ransData_.data(), ransData_.size());
 }
 
 void TileEncoder::collectStatistics(const uint8_t* bgra, int bgraStride,

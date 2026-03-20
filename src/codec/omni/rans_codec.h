@@ -22,6 +22,8 @@ constexpr uint32_t RANS_L = 1 << 23;  // lower bound of rANS state
 struct RANSSymbol {
     uint16_t freq;      // normalized frequency in [1, RANS_SCALE]
     uint16_t cumFreq;   // cumulative frequency (exclusive prefix sum)
+    uint32_t rcpFreq;   // reciprocal: ceil(2^32 / freq) for division-free encode
+    uint8_t  rcpShift;  // always 32 for our approach
 };
 
 // Decode table entry (precomputed for O(1) symbol lookup)
@@ -37,6 +39,10 @@ struct RANSDecodeEntry {
 // Returns: normalized RANSSymbol table where frequencies sum to RANS_SCALE.
 std::vector<RANSSymbol> buildFrequencyTable(const uint32_t* counts, int alphabetSize);
 
+// Build into pre-allocated table (avoids heap allocation in hot path).
+void buildFrequencyTableInPlace(const uint32_t* counts, int alphabetSize,
+                                RANSSymbol* table);
+
 // Build a decode lookup table (RANS_SCALE entries) for O(1) decoding.
 std::vector<RANSDecodeEntry> buildDecodeTable(const std::vector<RANSSymbol>& symbols,
                                                int alphabetSize);
@@ -46,11 +52,6 @@ public:
     RANSEncoder();
 
     // Encode a sequence of byte symbols.
-    // symbols: input byte array
-    // count: number of symbols
-    // freqTable: normalized frequency table (alphabetSize entries)
-    // alphabetSize: number of symbols (typically 256)
-    // output: encoded bytes appended here
     void encode(const uint8_t* symbols, size_t count,
                 const RANSSymbol* freqTable, int alphabetSize,
                 std::vector<uint8_t>& output);
@@ -64,27 +65,22 @@ public:
     void reset();
 
 private:
-    void putSymbol(uint32_t& state, const RANSSymbol& sym,
-                   std::vector<uint8_t>& output);
-    void flush(uint32_t state, std::vector<uint8_t>& output);
+    // Division-free putSymbol using precomputed reciprocal
+    inline void putSymbolFast(uint32_t& state, const RANSSymbol& sym,
+                              uint8_t*& stackPtr);
+
+    // Pre-allocated stack buffer for encode (avoids per-call heap allocation)
+    std::vector<uint8_t> stack_;
 };
 
 class RANSDecoder {
 public:
     RANSDecoder();
 
-    // Decode a sequence of byte symbols.
-    // data: encoded byte stream
-    // dataSize: encoded stream length
-    // decodeTable: precomputed decode table (RANS_SCALE entries)
-    // count: number of symbols to decode
-    // output: decoded symbols written here (must have space for count bytes)
-    // Returns: true on success, false on error.
     bool decode(const uint8_t* data, size_t dataSize,
                 const RANSDecodeEntry* decodeTable,
                 size_t count, uint8_t* output);
 
-    // 4-way interleaved decode (matches encodeInterleaved).
     bool decodeInterleaved(const uint8_t* data, size_t dataSize,
                            const RANSDecodeEntry* decodeTable,
                            size_t count, uint8_t* output);

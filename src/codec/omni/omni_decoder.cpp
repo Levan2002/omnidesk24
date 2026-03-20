@@ -171,7 +171,7 @@ bool OmniCodecDecoder::decode(const uint8_t* data, size_t size, Frame& out) {
         uint16_t numNonZero = bs.readU16();
         if (bs.hasError()) return false;
 
-        sharedFreqTable.resize(256, {0, 0});
+        sharedFreqTable.resize(256, {0, 0, 0, 0});
         for (int i = 0; i < numNonZero; ++i) {
             uint8_t sym = bs.readU8();
             uint16_t freq = bs.readU16();

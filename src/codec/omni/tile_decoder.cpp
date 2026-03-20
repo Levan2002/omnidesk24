@@ -67,7 +67,17 @@ bool TileDecoder::decodeResiduals(BitstreamReader& bs, size_t totalSymbols) {
     uint16_t numNonZero = bs.readU16();
     if (bs.hasError()) return false;
 
-    std::vector<RANSSymbol> freqTable(256, {0, 0});
+    // Fast path: uniform tile (all symbols identical)
+    if (numNonZero == 0) {
+        uint8_t sym = bs.readU8();
+        uint32_t symCount = bs.readU32();
+        if (bs.hasError() || symCount != totalSymbols) return false;
+        if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+        std::memset(symbolBuf_.data(), sym, totalSymbols);
+        return true;
+    }
+
+    std::vector<RANSSymbol> freqTable(256, {0, 0, 0, 0});
     for (int i = 0; i < numNonZero; ++i) {
         uint8_t sym = bs.readU8();
         uint16_t freq = bs.readU16();
