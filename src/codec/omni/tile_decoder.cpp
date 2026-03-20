@@ -139,30 +139,45 @@ bool TileDecoder::decodeLossless(BitstreamReader& bs, uint8_t* bgra, int bgraStr
                                   int16_t topLeftY, int16_t topLeftCo,
                                   int16_t topLeftCg) {
     int numPixels = tileW * tileH;
-    size_t totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
 
     // Read prediction modes (3 bits each)
     PredMode yMode = static_cast<PredMode>(bs.readBits(3));
     PredMode coMode = static_cast<PredMode>(bs.readBits(3));
     PredMode cgMode = static_cast<PredMode>(bs.readBits(3));
+
+    // Read single-byte flag (1 bit)
+    bool singleByte = bs.readBits(1) != 0;
     if (bs.hasError()) return false;
+
+    size_t totalSymbols = singleByte
+        ? static_cast<size_t>(numPixels) * 3
+        : static_cast<size_t>(numPixels) * 3 * 2;
 
     // Decode rANS-compressed symbols
     bs.alignToByte();
     if (!decodeResiduals(bs, totalSymbols)) return false;
 
-    // Reconstruct int16_t residuals from two-byte encoding
+    // Reconstruct int16_t residuals
     int16_t* yRes = residualBuf_.data();
     int16_t* coRes = residualBuf_.data() + numPixels;
     int16_t* cgRes = residualBuf_.data() + numPixels * 2;
 
     size_t si = 0;
-    for (int c = 0; c < 3; ++c) {
-        int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
-        for (int i = 0; i < numPixels; ++i) {
-            uint16_t lo = symbolBuf_[si++];
-            uint16_t hi = symbolBuf_[si++];
-            res[i] = static_cast<int16_t>(lo | (hi << 8));
+    if (singleByte) {
+        for (int c = 0; c < 3; ++c) {
+            int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                res[i] = static_cast<int16_t>(static_cast<int8_t>(symbolBuf_[si++]));
+            }
+        }
+    } else {
+        for (int c = 0; c < 3; ++c) {
+            int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                uint16_t lo = symbolBuf_[si++];
+                uint16_t hi = symbolBuf_[si++];
+                res[i] = static_cast<int16_t>(lo | (hi << 8));
+            }
         }
     }
 
@@ -187,7 +202,6 @@ bool TileDecoder::decodeNearLossless(BitstreamReader& bs, uint8_t* bgra, int bgr
                                       int16_t topLeftY, int16_t topLeftCo,
                                       int16_t topLeftCg) {
     int numPixels = tileW * tileH;
-    size_t totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
 
     // Read prediction modes
     PredMode yMode = static_cast<PredMode>(bs.readBits(3));
@@ -200,6 +214,14 @@ bool TileDecoder::decodeNearLossless(BitstreamReader& bs, uint8_t* bgra, int bgr
     uint8_t qStep = bs.readU8();
     if (bs.hasError() || qStep == 0) return false;
 
+    // Read single-byte flag (1 bit)
+    bool singleByte = bs.readBits(1) != 0;
+    if (bs.hasError()) return false;
+
+    size_t totalSymbols = singleByte
+        ? static_cast<size_t>(numPixels) * 3
+        : static_cast<size_t>(numPixels) * 3 * 2;
+
     // Decode rANS-compressed symbols
     if (!decodeResiduals(bs, totalSymbols)) return false;
 
@@ -209,12 +231,21 @@ bool TileDecoder::decodeNearLossless(BitstreamReader& bs, uint8_t* bgra, int bgr
     int16_t* cgRes = residualBuf_.data() + numPixels * 2;
 
     size_t si = 0;
-    for (int c = 0; c < 3; ++c) {
-        int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
-        for (int i = 0; i < numPixels; ++i) {
-            uint16_t lo = symbolBuf_[si++];
-            uint16_t hi = symbolBuf_[si++];
-            res[i] = static_cast<int16_t>(lo | (hi << 8));
+    if (singleByte) {
+        for (int c = 0; c < 3; ++c) {
+            int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                res[i] = static_cast<int16_t>(static_cast<int8_t>(symbolBuf_[si++]));
+            }
+        }
+    } else {
+        for (int c = 0; c < 3; ++c) {
+            int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                uint16_t lo = symbolBuf_[si++];
+                uint16_t hi = symbolBuf_[si++];
+                res[i] = static_cast<int16_t>(lo | (hi << 8));
+            }
         }
     }
 
@@ -241,7 +272,6 @@ bool TileDecoder::decodeNearLossless(BitstreamReader& bs, uint8_t* bgra, int bgr
 bool TileDecoder::decodeLossy(BitstreamReader& bs, uint8_t* bgra, int bgraStride,
                                int tileW, int tileH) {
     int numPixels = tileW * tileH;
-    size_t totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
 
     // Read block size (2 bits)
     uint8_t bsCode = bs.readBits(2);
@@ -253,17 +283,35 @@ bool TileDecoder::decodeLossy(BitstreamReader& bs, uint8_t* bgra, int bgraStride
     uint8_t qp = bs.readU8();
     if (bs.hasError()) return false;
 
+    // Read single-byte flag (1 bit)
+    bool singleByte = bs.readBits(1) != 0;
+    if (bs.hasError()) return false;
+
+    size_t totalSymbols = singleByte
+        ? static_cast<size_t>(numPixels) * 3
+        : static_cast<size_t>(numPixels) * 3 * 2;
+
     // Decode rANS-compressed symbols
     if (!decodeResiduals(bs, totalSymbols)) return false;
 
     // Reconstruct quantized DCT coefficients
-    for (int c = 0; c < 3; ++c) {
-        int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
-        size_t base = static_cast<size_t>(c) * numPixels * 2;
-        for (int i = 0; i < numPixels; ++i) {
-            uint16_t lo = symbolBuf_[base + i * 2];
-            uint16_t hi = symbolBuf_[base + i * 2 + 1];
-            ch[i] = static_cast<int16_t>(lo | (hi << 8));
+    if (singleByte) {
+        for (int c = 0; c < 3; ++c) {
+            int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
+            size_t base = static_cast<size_t>(c) * numPixels;
+            for (int i = 0; i < numPixels; ++i) {
+                ch[i] = static_cast<int16_t>(static_cast<int8_t>(symbolBuf_[base + i]));
+            }
+        }
+    } else {
+        for (int c = 0; c < 3; ++c) {
+            int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
+            size_t base = static_cast<size_t>(c) * numPixels * 2;
+            for (int i = 0; i < numPixels; ++i) {
+                uint16_t lo = symbolBuf_[base + i * 2];
+                uint16_t hi = symbolBuf_[base + i * 2 + 1];
+                ch[i] = static_cast<int16_t>(lo | (hi << 8));
+            }
         }
     }
 

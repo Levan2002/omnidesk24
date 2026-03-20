@@ -26,6 +26,26 @@ PredMode TileEncoder::selectPredMode(const int16_t* channel, int w, int h,
                                       const int16_t* top, const int16_t* left,
                                       int16_t topLeft) {
     int numPixels = w * h;
+
+    // Fast path: when no neighbor context is available, DC/H/V/Planar all
+    // predict zero, so only compare "predict-zero" vs LEFT_PIXEL.
+    if (!top && !left) {
+        // SAD against zero = sum of absolute values
+        uint64_t zeroSAD = 0;
+        for (int i = 0; i < numPixels; ++i) {
+            zeroSAD += static_cast<uint64_t>(std::abs(channel[i]));
+        }
+
+        // LEFT_PIXEL SAD
+        predictLeftPixel(channel, predBuf_.data(), w, h);
+        uint64_t leftSAD = 0;
+        for (int i = 0; i < numPixels; ++i) {
+            leftSAD += static_cast<uint64_t>(std::abs(predBuf_[i]));
+        }
+
+        return (leftSAD < zeroSAD) ? PredMode::LEFT_PIXEL : PredMode::DC;
+    }
+
     uint64_t bestSAD = UINT64_MAX;
     PredMode bestMode = PredMode::LEFT_PIXEL;
 
@@ -178,17 +198,38 @@ void TileEncoder::encodeLossless(const uint8_t* bgra, int bgraStride,
     applyPrediction(coBuf_.data(), coRes, tileW, tileH, coMode, topCo, leftCo, topLeftCo);
     applyPrediction(cgBuf_.data(), cgRes, tileW, tileH, cgMode, topCg, leftCg, topLeftCg);
 
-    // Step 4: Two-byte encode residuals
-    size_t totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
-    if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+    // Step 4: Check if all residuals fit in [-128, 127] for single-byte encoding
+    bool singleByte = true;
+    for (int i = 0; i < numPixels * 3 && singleByte; ++i) {
+        int16_t v = residualBuf_[i];
+        if (v < -128 || v > 127) singleByte = false;
+    }
 
-    size_t si = 0;
-    for (int c = 0; c < 3; ++c) {
-        const int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
-        for (int i = 0; i < numPixels; ++i) {
-            uint16_t u = static_cast<uint16_t>(res[i]);
-            symbolBuf_[si++] = static_cast<uint8_t>(u & 0xFF);
-            symbolBuf_[si++] = static_cast<uint8_t>((u >> 8) & 0xFF);
+    // Write single-byte flag (1 bit)
+    bs.writeBits(singleByte ? 1 : 0, 1);
+
+    size_t totalSymbols;
+    if (singleByte) {
+        totalSymbols = static_cast<size_t>(numPixels) * 3;
+        if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+        size_t si = 0;
+        for (int c = 0; c < 3; ++c) {
+            const int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                symbolBuf_[si++] = static_cast<uint8_t>(static_cast<int8_t>(res[i]));
+            }
+        }
+    } else {
+        totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
+        if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+        size_t si = 0;
+        for (int c = 0; c < 3; ++c) {
+            const int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                uint16_t u = static_cast<uint16_t>(res[i]);
+                symbolBuf_[si++] = static_cast<uint8_t>(u & 0xFF);
+                symbolBuf_[si++] = static_cast<uint8_t>((u >> 8) & 0xFF);
+            }
         }
     }
 
@@ -247,17 +288,38 @@ void TileEncoder::encodeNearLossless(const uint8_t* bgra, int bgraStride,
     bs.flushBits();
     bs.writeU8(static_cast<uint8_t>(qStep));
 
-    // Two-byte encode quantized residuals
-    size_t totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
-    if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+    // Check if all residuals fit in [-128, 127] for single-byte encoding
+    bool singleByte = true;
+    for (int i = 0; i < numPixels * 3 && singleByte; ++i) {
+        int16_t v = residualBuf_[i];
+        if (v < -128 || v > 127) singleByte = false;
+    }
 
-    size_t si = 0;
-    for (int c = 0; c < 3; ++c) {
-        const int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
-        for (int i = 0; i < numPixels; ++i) {
-            uint16_t u = static_cast<uint16_t>(res[i]);
-            symbolBuf_[si++] = static_cast<uint8_t>(u & 0xFF);
-            symbolBuf_[si++] = static_cast<uint8_t>((u >> 8) & 0xFF);
+    // Write single-byte flag (1 bit)
+    bs.writeBits(singleByte ? 1 : 0, 1);
+
+    size_t totalSymbols;
+    if (singleByte) {
+        totalSymbols = static_cast<size_t>(numPixels) * 3;
+        if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+        size_t si = 0;
+        for (int c = 0; c < 3; ++c) {
+            const int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                symbolBuf_[si++] = static_cast<uint8_t>(static_cast<int8_t>(res[i]));
+            }
+        }
+    } else {
+        totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
+        if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+        size_t si = 0;
+        for (int c = 0; c < 3; ++c) {
+            const int16_t* res = (c == 0) ? yRes : (c == 1) ? coRes : cgRes;
+            for (int i = 0; i < numPixels; ++i) {
+                uint16_t u = static_cast<uint16_t>(res[i]);
+                symbolBuf_[si++] = static_cast<uint8_t>(u & 0xFF);
+                symbolBuf_[si++] = static_cast<uint8_t>((u >> 8) & 0xFF);
+            }
         }
     }
 
@@ -326,22 +388,45 @@ void TileEncoder::encodeLossy(const uint8_t* bgra, int bgraStride,
         }
     }
 
-    // Two-byte encode all quantized coefficients
-    size_t totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
-    if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
-
-    size_t si = 0;
-    for (int c = 0; c < 3; ++c) {
+    // Check if all quantized coefficients fit in [-128, 127] for single-byte encoding
+    bool singleByte = true;
+    for (int c = 0; c < 3 && singleByte; ++c) {
         const int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
         for (int i = 0; i < numPixels; ++i) {
-            uint16_t u = static_cast<uint16_t>(ch[i]);
-            symbolBuf_[si++] = static_cast<uint8_t>(u & 0xFF);
-            symbolBuf_[si++] = static_cast<uint8_t>((u >> 8) & 0xFF);
+            if (ch[i] < -128 || ch[i] > 127) { singleByte = false; break; }
         }
     }
 
     // Write QP so decoder knows how to dequantize
     bs.writeU8(static_cast<uint8_t>(qp));
+
+    // Write single-byte flag (1 bit)
+    bs.writeBits(singleByte ? 1 : 0, 1);
+
+    size_t totalSymbols;
+    if (singleByte) {
+        totalSymbols = static_cast<size_t>(numPixels) * 3;
+        if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+        size_t si = 0;
+        for (int c = 0; c < 3; ++c) {
+            const int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
+            for (int i = 0; i < numPixels; ++i) {
+                symbolBuf_[si++] = static_cast<uint8_t>(static_cast<int8_t>(ch[i]));
+            }
+        }
+    } else {
+        totalSymbols = static_cast<size_t>(numPixels) * 3 * 2;
+        if (symbolBuf_.size() < totalSymbols) symbolBuf_.resize(totalSymbols);
+        size_t si = 0;
+        for (int c = 0; c < 3; ++c) {
+            const int16_t* ch = (c == 0) ? yBuf_.data() : (c == 1) ? coBuf_.data() : cgBuf_.data();
+            for (int i = 0; i < numPixels; ++i) {
+                uint16_t u = static_cast<uint16_t>(ch[i]);
+                symbolBuf_[si++] = static_cast<uint8_t>(u & 0xFF);
+                symbolBuf_[si++] = static_cast<uint8_t>((u >> 8) & 0xFF);
+            }
+        }
+    }
 
     encodeResiduals(symbolBuf_.data(), totalSymbols, bs);
 }
